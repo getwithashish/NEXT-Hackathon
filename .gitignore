@@ -80,3 +80,8 @@ logs/
 *.tar.gz
 *.zip
 hackathon_startup.sh
+
+# ── Agent runtime files ────────────────────────────────────────────────────────
+.agents/
+skills-lock.json
+.hil_state.json
