@@ -1,0 +1,4 @@
+boto3==1.34.0
+numpy==1.26.4
+requests
+exa-py
