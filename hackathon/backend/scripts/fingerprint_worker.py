@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-fingerprint_worker.py — Model Fingerprinting Worker for AWS EC2
-================================================================
-Runs as a standalone job on Amazon Linux 2 DLAMI.
-Credentials via IAM instance role (no hardcoded keys).
+fingerprint_worker.py — Model Fingerprinting Worker
+====================================================
+Runs as a standalone job (EC2 / local) or as an AWS Lambda function.
+Credentials via IAM instance role / Lambda execution role (no hardcoded keys).
 
 Supported model types:
-  - pth   : PyTorch weight-based fingerprinting (layer stats + SHA256)
-  - onnx  : ONNX graph/weight fingerprinting
-  - api   : Behavioral fingerprinting via AWS Bedrock (Claude Haiku)
+  - api   : Behavioral fingerprinting — any provider via api_caller_agent
 
-Required env vars:
-  JOB_ID, MODEL_TYPE, S3_MODEL_KEY, RESULT_S3_KEY,
-  AWS_S3_BUCKET, AWS_DEFAULT_REGION, API_ENDPOINT, API_KEY
+Required env vars (standalone):
+  JOB_ID, MODEL_TYPE, AWS_S3_BUCKET, AWS_DEFAULT_REGION,
+  BACKEND_URL, API_ENDPOINT, API_KEY
+
+Lambda entry point: lambda_handler(event, context)
+  event keys: job_id, model_type, api_endpoint, api_key, model_hint,
+              backend_url, request_template, s3_bucket, region
 """
 
 import os
@@ -21,13 +23,15 @@ import json
 import time
 import hashlib
 import logging
-import tempfile
 import traceback
 from collections import Counter
 from pathlib import Path
 
+from typing import Optional
+
 import boto3
 import numpy as np
+import urllib.request
 from botocore.exceptions import BotoCoreError, ClientError
 
 # ---------------------------------------------------------------------------
@@ -47,27 +51,27 @@ log = logging.getLogger("fingerprint_worker")
 # ---------------------------------------------------------------------------
 class Config:
     def __init__(self):
-        self.job_id         = os.environ.get("JOB_ID", "unknown_job")
-        self.model_type     = os.environ.get("MODEL_TYPE", "").lower().strip()
-        self.s3_model_key   = os.environ.get("S3_MODEL_KEY", "")
-        self.result_s3_key  = os.environ.get("RESULT_S3_KEY", "")
-        self.s3_bucket      = os.environ.get("AWS_S3_BUCKET", "")
-        self.region         = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-        self.api_endpoint   = os.environ.get("API_ENDPOINT", "")
-        self.api_key        = os.environ.get("API_KEY", "")
+        self.job_id           = os.environ.get("JOB_ID", "unknown_job")
+        self.model_type       = os.environ.get("MODEL_TYPE", "").lower().strip()
+        self.s3_bucket        = os.environ.get("AWS_S3_BUCKET", "")
+        self.region           = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+        self.api_endpoint     = os.environ.get("API_ENDPOINT", "")
+        self.api_key          = os.environ.get("API_KEY", "")
+        self.model_hint       = os.environ.get("MODEL_HINT", "")
+        self.backend_url      = os.environ.get("BACKEND_URL", "http://54.86.179.209:8000")
+        self.responses_s3_key = os.environ.get("RESPONSES_S3_KEY", "")
+        # REQUEST_TEMPLATE: JSON string → parsed dict, or None if not set
+        _rt = os.environ.get("REQUEST_TEMPLATE", "").strip()
+        self.request_template: Optional[dict] = json.loads(_rt) if _rt and _rt != "{}" else None
 
     def validate(self):
         errors = []
         if not self.model_type:
             errors.append("MODEL_TYPE is required")
-        if self.model_type not in ("pth", "onnx", "api"):
-            errors.append(f"MODEL_TYPE must be pth/onnx/api, got: '{self.model_type}'")
-        if not self.result_s3_key:
-            errors.append("RESULT_S3_KEY is required")
+        if self.model_type not in ("api",):
+            errors.append(f"MODEL_TYPE must be api, got: '{self.model_type}'")
         if not self.s3_bucket:
             errors.append("AWS_S3_BUCKET is required")
-        if self.model_type in ("pth", "onnx") and not self.s3_model_key:
-            errors.append("S3_MODEL_KEY is required for pth/onnx model types")
         return errors
 
 
@@ -78,212 +82,83 @@ def get_s3_client(region: str):
     return boto3.client("s3", region_name=region)
 
 
-def download_from_s3(s3_client, bucket: str, key: str, local_path: str) -> None:
-    log.info("Downloading s3://%s/%s → %s", bucket, key, local_path)
-    s3_client.download_file(bucket, key, local_path)
-    size = Path(local_path).stat().st_size
-    log.info("Download complete: %.2f MB", size / 1_048_576)
+def upload_responses_to_s3(s3_client, bucket: str, key: str, responses: list) -> None:
+    """Upload raw LLM response samples to S3 — only when payload is large."""
+    payload = json.dumps(responses, indent=2, default=str).encode("utf-8")
+    log.info("Offloading raw responses to s3://%s/%s (%d bytes)", bucket, key, len(payload))
+    s3_client.put_object(Bucket=bucket, Key=key, Body=payload, ContentType="application/json")
+    log.info("Raw responses offloaded.")
 
 
-def upload_result_to_s3(s3_client, bucket: str, key: str, result: dict) -> None:
-    payload = json.dumps(result, indent=2, default=str).encode("utf-8")
-    log.info("Uploading result to s3://%s/%s (%d bytes)", bucket, key, len(payload))
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=payload,
-        ContentType="application/json",
+RAW_RESPONSE_THRESHOLD_KB = 5   # offload response_samples to S3 if larger than this
+
+
+def post_result_to_backend(cfg: "Config", result: dict) -> None:
+    """
+    POST fingerprint result directly to the backend callback endpoint.
+    Optionally strips large response_samples and offloads them to S3 first.
+    """
+    payload = dict(result)
+
+    # Check if response_samples is big enough to offload
+    responses_s3_key = None
+    samples = payload.get("response_samples") or (
+        (payload.get("behavioral_signature") or {}).get("response_samples")
     )
-    log.info("Result upload complete.")
+    if samples and cfg.responses_s3_key:
+        samples_json = json.dumps(samples, default=str)
+        if len(samples_json) > RAW_RESPONSE_THRESHOLD_KB * 1024:
+            try:
+                s3 = get_s3_client(cfg.region)
+                upload_responses_to_s3(s3, cfg.s3_bucket, cfg.responses_s3_key, samples)
+                if "response_samples" in payload:
+                    del payload["response_samples"]
+                if "behavioral_signature" in payload and "response_samples" in payload["behavioral_signature"]:
+                    del payload["behavioral_signature"]["response_samples"]
+                responses_s3_key = cfg.responses_s3_key
+                log.info("Response samples offloaded to S3 (%d KB)", len(samples_json) // 1024)
+            except Exception as e:
+                log.warning("Failed to offload responses to S3 (sending inline): %s", e)
 
-
-# ---------------------------------------------------------------------------
-# PTH fingerprinting (torch imported lazily)
-# ---------------------------------------------------------------------------
-def _sha256_of_bytes(data: bytes) -> str:
-    h = hashlib.sha256()
-    h.update(data)
-    return h.hexdigest()
-
-
-def _tensor_stats(tensor) -> dict:
-    """Return descriptive statistics for a single weight tensor."""
-    try:
-        arr = tensor.detach().float().cpu().numpy().astype(np.float64)
-        flat = arr.flatten()
-        return {
-            "shape": list(tensor.shape),
-            "dtype": str(tensor.dtype),
-            "numel": int(flat.size),
-            "mean": float(np.mean(flat)),
-            "std": float(np.std(flat)),
-            "min": float(np.min(flat)),
-            "max": float(np.max(flat)),
-            "l2_norm": float(np.linalg.norm(flat)),
-            "sha256": _sha256_of_bytes(flat.tobytes()),
-        }
-    except Exception as exc:
-        return {"error": str(exc)}
-
-
-def fingerprint_pth(local_path: str) -> dict:
-    """Weight-based fingerprint for a PyTorch .pth checkpoint."""
-    # Lazy import — torch must NOT be imported at module level
-    import torch  # noqa: PLC0415
-
-    log.info("Loading PyTorch checkpoint: %s", local_path)
-    try:
-        checkpoint = torch.load(
-            local_path,
-            map_location="cpu",
-            weights_only=True,   # safe loading — no arbitrary code execution
-        )
-    except TypeError:
-        # older torch versions don't support weights_only
-        checkpoint = torch.load(local_path, map_location="cpu")
-
-    # Normalise to state_dict
-    if isinstance(checkpoint, dict):
-        if "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
-            meta = {k: str(v) for k, v in checkpoint.items() if k != "state_dict"}
-        elif all(hasattr(v, "shape") for v in checkpoint.values()):
-            state_dict = checkpoint
-            meta = {}
-        else:
-            state_dict = checkpoint
-            meta = {}
-    else:
-        # nn.Module saved directly
-        try:
-            state_dict = checkpoint.state_dict()
-            meta = {"class": type(checkpoint).__name__}
-        except AttributeError:
-            raise ValueError(f"Unrecognised checkpoint format: {type(checkpoint)}")
-
-    log.info("State dict has %d tensors", len(state_dict))
-
-    # Per-layer stats
-    layer_stats = {}
-    sha256_accumulator = hashlib.sha256()
-    total_params = 0
-
-    for name, tensor in state_dict.items():
-        stats = _tensor_stats(tensor)
-        layer_stats[name] = stats
-        total_params += stats.get("numel", 0)
-        # Feed layer SHA into global hash for a composite fingerprint
-        sha256_accumulator.update(stats.get("sha256", name).encode())
-
-    # Global weight hash — deterministic across identical weights regardless of filename
-    global_sha256 = sha256_accumulator.hexdigest()
-
-    # Aggregate stats across all layers (float tensors only)
-    all_means = [v["mean"] for v in layer_stats.values() if "mean" in v]
-    all_stds  = [v["std"]  for v in layer_stats.values() if "std"  in v]
-
-    aggregate = {
-        "layer_count": len(state_dict),
-        "total_params": total_params,
-        "mean_of_means": float(np.mean(all_means)) if all_means else None,
-        "std_of_means":  float(np.std(all_means))  if all_means else None,
-        "mean_of_stds":  float(np.mean(all_stds))  if all_stds  else None,
+    callback_payload = {
+        "status":           payload.get("status", "error"),
+        "fingerprint_data": payload,
+        "error":            payload.get("error"),
+        "responses_s3_key": responses_s3_key,
     }
 
-    return {
-        "fingerprint_type": "weight_based",
-        "global_sha256": global_sha256,
-        "aggregate_stats": aggregate,
-        "layer_stats": layer_stats,
-        "checkpoint_meta": meta,
-        "torch_version": torch.__version__,
-    }
+    url = f"{cfg.backend_url}/internal/job/{cfg.job_id}/complete"
+    body = json.dumps(callback_payload, default=str).encode("utf-8")
+    log.info("POSTing result to %s (%d bytes)", url, len(body))
 
-
-# ---------------------------------------------------------------------------
-# ONNX fingerprinting
-# ---------------------------------------------------------------------------
-def _onnx_initializer_stats(initializer) -> dict:
-    """Return stats for an ONNX initializer (weight tensor)."""
-    try:
-        import onnx.numpy_helper as nph  # noqa: PLC0415
-        arr = nph.to_array(initializer).astype(np.float64).flatten()
-        return {
-            "name": initializer.name,
-            "dims": list(initializer.dims),
-            "data_type": initializer.data_type,
-            "numel": int(arr.size),
-            "mean": float(np.mean(arr)),
-            "std": float(np.std(arr)),
-            "min": float(np.min(arr)),
-            "max": float(np.max(arr)),
-            "l2_norm": float(np.linalg.norm(arr)),
-            "sha256": _sha256_of_bytes(arr.tobytes()),
-        }
-    except Exception as exc:
-        return {"name": initializer.name, "error": str(exc)}
-
-
-def fingerprint_onnx(local_path: str) -> dict:
-    """Weight-based fingerprint for an ONNX model file."""
-    import onnx  # noqa: PLC0415
-
-    log.info("Loading ONNX model: %s", local_path)
-    model = onnx.load(local_path)
-    onnx.checker.check_model(model)
-
-    graph = model.graph
-    log.info(
-        "ONNX graph: %d nodes, %d initializers",
-        len(graph.node),
-        len(graph.initializer),
+    req = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-
-    # Graph topology hash
-    node_ops = [n.op_type for n in graph.node]
-    topo_str = "|".join(node_ops)
-    topology_hash = hashlib.sha256(topo_str.encode()).hexdigest()
-
-    # Initializer (weight) stats
-    sha256_accumulator = hashlib.sha256()
-    weight_stats = {}
-    total_params = 0
-
-    for init in graph.initializer:
-        stats = _onnx_initializer_stats(init)
-        weight_stats[init.name] = stats
-        total_params += stats.get("numel", 0)
-        sha256_accumulator.update(stats.get("sha256", init.name).encode())
-
-    global_sha256 = sha256_accumulator.hexdigest()
-
-    all_means = [v["mean"] for v in weight_stats.values() if "mean" in v]
-    all_stds  = [v["std"]  for v in weight_stats.values() if "std"  in v]
-
-    opset_versions = [op.version for op in model.opset_import]
-
-    return {
-        "fingerprint_type": "weight_based",
-        "global_sha256": global_sha256,
-        "topology_hash": topology_hash,
-        "aggregate_stats": {
-            "initializer_count": len(graph.initializer),
-            "node_count": len(graph.node),
-            "total_params": total_params,
-            "mean_of_means": float(np.mean(all_means)) if all_means else None,
-            "std_of_means":  float(np.std(all_means))  if all_means else None,
-            "mean_of_stds":  float(np.mean(all_stds))  if all_stds  else None,
-        },
-        "weight_stats": weight_stats,
-        "model_ir_version": model.ir_version,
-        "opset_versions": opset_versions,
-        "onnx_version": onnx.__version__,
-    }
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        log.info("Backend callback: %s %s", resp.status, resp.read().decode())
 
 
 # ---------------------------------------------------------------------------
-# API / Behavioral fingerprinting via AWS Bedrock
+# API / Behavioral fingerprinting — provider-agnostic via ApiCallerAgent
 # ---------------------------------------------------------------------------
+
+# Lazy import — api_caller_agent lives next to this file when deployed
+import importlib.util as _ilu
+import pathlib as _pl
+
+def _load_caller_module():
+    """Load api_caller_agent module from the scripts directory (co-located on EC2)."""
+    here = _pl.Path(__file__).parent
+    spec = _ilu.spec_from_file_location("api_caller_agent", here / "api_caller_agent.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("Could not locate api_caller_agent.py next to fingerprint_worker.py")
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
 DIVERSE_PROMPTS = [
     # Factual / knowledge
     "What is the speed of light in a vacuum?",
@@ -311,26 +186,6 @@ DIVERSE_PROMPTS = [
     "Complete this analogy: hot is to cold as fast is to ___.",
 ]
 
-BEDROCK_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def _invoke_bedrock(bedrock_client, prompt: str, max_tokens: int = 256) -> str:
-    """Invoke a Bedrock model and return the text response."""
-    body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    })
-    response = bedrock_client.invoke_model(
-        modelId=BEDROCK_MODEL_ID,
-        body=body,
-        contentType="application/json",
-        accept="application/json",
-    )
-    response_body = json.loads(response["body"].read())
-    # Claude response format: content[0].text
-    return response_body["content"][0]["text"]
-
 
 def _behavior_hash(responses: list[str]) -> str:
     """Deterministic hash over the concatenated responses."""
@@ -352,63 +207,81 @@ def _top_vocabulary(responses: list[str], top_n: int = 20) -> list[dict]:
 
 
 def fingerprint_api(cfg: Config) -> dict:
-    """Behavioral fingerprint via AWS Bedrock (no Anthropic SDK)."""
-    log.info(
-        "Starting behavioral fingerprinting via Bedrock model %s",
-        BEDROCK_MODEL_ID,
-    )
-    bedrock = boto3.client("bedrock-runtime", region_name=cfg.region)
+    """
+    Behavioral fingerprint by probing the submitted API endpoint.
 
-    responses: list[str] = []
-    errors: list[dict] = []
-    latencies: list[float] = []
+    Caller selection (in order):
+      1. REQUEST_TEMPLATE env var set → CustomTemplateCallerAgent
+         (user pre-defined the exact request format — most reliable)
+      2. Neither → ApiCallerAgent heuristic + AI fallback
+         (provider auto-detected from URL pattern)
+    """
+    if not cfg.api_endpoint:
+        raise ValueError(
+            "API_ENDPOINT is required for api-type fingerprinting. "
+            "Provide the full URL of the LLM API to fingerprint."
+        )
 
-    for i, prompt in enumerate(DIVERSE_PROMPTS):
-        log.info("Prompt %02d/%02d: %s…", i + 1, len(DIVERSE_PROMPTS), prompt[:60])
-        t0 = time.monotonic()
-        try:
-            text = _invoke_bedrock(bedrock, prompt)
-            latency = time.monotonic() - t0
-            responses.append(text)
-            latencies.append(latency)
-            log.info("  → %d chars in %.2fs", len(text), latency)
-        except (BotoCoreError, ClientError) as exc:
-            latency = time.monotonic() - t0
-            log.warning("  Bedrock error on prompt %d: %s", i + 1, exc)
-            errors.append({"prompt_index": i, "error": str(exc)})
-        except Exception as exc:  # noqa: BLE001
-            latency = time.monotonic() - t0
-            log.warning("  Unexpected error on prompt %d: %s", i + 1, exc)
-            errors.append({"prompt_index": i, "error": str(exc)})
+    mod = _load_caller_module()
+
+    if cfg.request_template:
+        log.info(
+            "Using CustomTemplateCallerAgent | url=%s model_hint=%s",
+            cfg.request_template.get("url", cfg.api_endpoint), cfg.model_hint or "(none)",
+        )
+        caller = mod.CustomTemplateCallerAgent(
+            cfg.request_template,
+            api_key=cfg.api_key,
+            model_hint=cfg.model_hint or "",
+        )
+        # Validate once before firing all 20 probes
+        # validate() returns (ok, text, resolved_template_dict) — unpack all 3
+        ok, sample, _resolved = caller.validate()
+        if not ok:
+            raise RuntimeError(f"CustomTemplateCallerAgent validation failed: {sample}")
+        log.info("Template validated. Sample: %s", sample[:120])
+        batch_results = caller.call_batch(DIVERSE_PROMPTS)
+        caller_type = "custom_template"
+    else:
+        log.info(
+            "Using ApiCallerAgent (auto-detect) | endpoint=%s model_hint=%s",
+            cfg.api_endpoint, cfg.model_hint or "(auto)",
+        )
+        caller = mod.ApiCallerAgent(cfg.api_endpoint, cfg.api_key, region=cfg.region)
+        batch_results = caller.call_batch(DIVERSE_PROMPTS, model_hint=cfg.model_hint)
+        caller_type = "auto"
+
+    responses = [r["response"] for r in batch_results if not r["error"]]
+    errors    = [{"prompt_index": i, "prompt": r["prompt"], "error": r["error"]}
+                 for i, r in enumerate(batch_results) if r["error"]]
+    latencies = [r["latency"] for r in batch_results if not r["error"]]
 
     if not responses:
-        raise RuntimeError("All Bedrock invocations failed — no responses collected.")
+        raise RuntimeError(
+            f"All API calls failed — no responses collected.\n"
+            f"First error: {errors[0]['error'] if errors else 'unknown'}"
+        )
 
     lengths = [len(r) for r in responses]
-    avg_len = float(np.mean(lengths))
-    std_len = float(np.std(lengths))
-    avg_latency = float(np.mean(latencies)) if latencies else None
-
-    b_hash = _behavior_hash(responses)
-    vocab  = _top_vocabulary(responses)
 
     return {
         "fingerprint_type": "behavioral",
-        "bedrock_model_id": BEDROCK_MODEL_ID,
-        "prompts_sent": len(DIVERSE_PROMPTS),
+        "caller_type":      caller_type,
+        "api_endpoint":     cfg.api_endpoint,
+        "model_hint":       cfg.model_hint or "",
+        "prompts_sent":     len(DIVERSE_PROMPTS),
         "responses_received": len(responses),
         "failed_invocations": len(errors),
         "errors": errors,
         "behavioral_signature": {
-            "avg_response_length": avg_len,
-            "std_response_length": std_len,
+            "avg_response_length": float(np.mean(lengths)),
+            "std_response_length": float(np.std(lengths)),
             "min_response_length": int(min(lengths)),
             "max_response_length": int(max(lengths)),
-            "avg_latency_seconds": avg_latency,
-            "behavior_hash": b_hash,
-            "top_vocabulary": vocab,
+            "avg_latency_seconds": float(np.mean(latencies)) if latencies else None,
+            "behavior_hash":   _behavior_hash(responses),
+            "top_vocabulary":  _top_vocabulary(responses),
         },
-        # Store raw responses for offline analysis (truncated to 500 chars each)
         "response_samples": [r[:500] for r in responses],
     }
 
@@ -418,38 +291,10 @@ def fingerprint_api(cfg: Config) -> dict:
 # ---------------------------------------------------------------------------
 def run(cfg: Config) -> dict:
     """Run the appropriate fingerprinting strategy and return the result dict."""
-    s3 = get_s3_client(cfg.region)
-
-    if cfg.model_type in ("pth", "onnx"):
-        # Download model file to a temp directory
-        suffix = f".{cfg.model_type}"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            local_path = tmp.name
-
-        try:
-            download_from_s3(s3, cfg.s3_bucket, cfg.s3_model_key, local_path)
-            file_size = Path(local_path).stat().st_size
-
-            t0 = time.monotonic()
-            if cfg.model_type == "pth":
-                fp_data = fingerprint_pth(local_path)
-            else:
-                fp_data = fingerprint_onnx(local_path)
-            elapsed = time.monotonic() - t0
-
-            fp_data["file_size_bytes"] = file_size
-            fp_data["fingerprint_duration_seconds"] = round(elapsed, 3)
-        finally:
-            try:
-                os.unlink(local_path)
-            except OSError:
-                pass
-
-    elif cfg.model_type == "api":
+    if cfg.model_type == "api":
         t0 = time.monotonic()
         fp_data = fingerprint_api(cfg)
         fp_data["fingerprint_duration_seconds"] = round(time.monotonic() - t0, 3)
-
     else:
         raise ValueError(f"Unsupported MODEL_TYPE: {cfg.model_type}")
 
@@ -466,7 +311,6 @@ def main() -> int:
     result: dict = {
         "job_id": cfg.job_id,
         "model_type": cfg.model_type,
-        "s3_model_key": cfg.s3_model_key,
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "status": "unknown",
     }
@@ -478,13 +322,12 @@ def main() -> int:
         log.error(msg)
         result["status"] = "config_error"
         result["error"] = msg
-        # Still attempt to upload if we have enough to do so
-        if cfg.s3_bucket and cfg.result_s3_key:
+        # Still attempt to callback with the config error
+        if cfg.backend_url and cfg.job_id:
             try:
-                s3 = get_s3_client(cfg.region)
-                upload_result_to_s3(s3, cfg.s3_bucket, cfg.result_s3_key, result)
+                post_result_to_backend(cfg, result)
             except Exception as upload_exc:  # noqa: BLE001
-                log.error("Failed to upload error result: %s", upload_exc)
+                log.error("Failed to send error result to backend: %s", upload_exc)
         return 1
 
     try:
@@ -499,16 +342,14 @@ def main() -> int:
         result["error"] = str(exc)
         result["traceback"] = tb
 
-    # Always upload result
+    # Always POST result to backend (direct callback — no S3 polling)
     try:
-        s3 = get_s3_client(cfg.region)
-        upload_result_to_s3(s3, cfg.s3_bucket, cfg.result_s3_key, result)
-    except Exception as upload_exc:  # noqa: BLE001
+        post_result_to_backend(cfg, result)
+    except Exception as cb_exc:  # noqa: BLE001
         log.error(
-            "CRITICAL: Failed to upload result to S3 (s3://%s/%s): %s",
-            cfg.s3_bucket, cfg.result_s3_key, upload_exc,
+            "CRITICAL: Failed to POST result to backend (%s): %s",
+            cfg.backend_url, cb_exc,
         )
-        # Print to stdout as last resort so CloudWatch can capture it
         print("RESULT_FALLBACK:", json.dumps(result, default=str))
         return 2
 
@@ -517,5 +358,34 @@ def main() -> int:
     return exit_code
 
 
-if __name__ == "__main__":
+# ---------------------------------------------------------------------------
+# Lambda entry point
+# ---------------------------------------------------------------------------
+def lambda_handler(event: dict, context) -> dict:
+    """
+    Lambda entry point. Event fields (all strings unless noted):
+      job_id, model_type, api_endpoint, api_key, model_hint,
+      backend_url, request_template (JSON string or None),
+      s3_bucket, region
+    """
+    # populate os.environ from event so Config() picks everything up
+    mapping = {
+        'JOB_ID':               event.get('job_id', ''),
+        'MODEL_TYPE':           event.get('model_type', 'api'),
+        'API_ENDPOINT':         event.get('api_endpoint', ''),
+        'API_KEY':              event.get('api_key', ''),
+        'MODEL_HINT':           event.get('model_hint', ''),
+        'BACKEND_URL':          event.get('backend_url', ''),
+        'REQUEST_TEMPLATE':     event.get('request_template', ''),
+        'AWS_S3_BUCKET':        event.get('s3_bucket', ''),
+        'AWS_DEFAULT_REGION':   event.get('region', 'us-east-1'),
+    }
+    for k, v in mapping.items():
+        if v:
+            os.environ[k] = str(v)
+    exit_code = main()
+    return {'statusCode': 200 if exit_code == 0 else 500, 'exit_code': exit_code}
+
+
+if __name__ == '__main__':
     sys.exit(main())
