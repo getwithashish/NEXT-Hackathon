@@ -66,7 +66,7 @@ Respond ONLY with valid JSON. No extra text."""
     )
 
     response = client.invoke_model(
-        modelId="us.anthropic.claude-haiku-4-5:0",
+        modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         body=body,
         contentType="application/json",
         accept="application/json",

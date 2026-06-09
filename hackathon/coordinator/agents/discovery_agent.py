@@ -111,7 +111,7 @@ class DiscoveryAgent:
             service_name="bedrock-runtime",
             region_name="us-east-1",
         )
-        self.model_id = "us.anthropic.claude-haiku-4-5:0"
+        self.model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
     def _search_all_queries(self, existing_urls: set) -> list[str]:
         """Run all search queries and return a deduplicated list of new URLs."""
