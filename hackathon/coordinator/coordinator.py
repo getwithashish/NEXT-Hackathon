@@ -59,15 +59,15 @@ from sqlalchemy import select
 # Configuration from environment variables
 # ---------------------------------------------------------------------------
 
-EXA_API_KEY          = os.environ.get("EXA_API_KEY", "")
-STRIPE_SECRET_KEY    = os.environ.get("STRIPE_SECRET_KEY", "")
+EXA_API_KEY=os.env...EY", "")
 IMAP_HOST            = os.environ.get("IMAP_HOST", "mail.openpic.in")
 IMAP_USER            = os.environ.get("IMAP_USER", "nextman@openpic.in")
 IMAP_PASS            = os.environ.get("IMAP_PASS", "")
 REGISTRATION_EMAIL   = os.environ.get("REGISTRATION_EMAIL", "nextman@openpic.in")
-REGISTRATION_PASSWORD = os.environ.get("REGISTRATION_PASSWORD", "")
+REGISTRATION_PASSWORD=os.env...RD", "")
 BACKEND_URL          = os.environ.get("BACKEND_URL", "http://54.86.179.209:8000")
-SPEND_CAP_USD        = float(os.environ.get("SPEND_CAP_USD", "5.0"))
+# Vercel Nitro backend URL — hosts all Vercel Workflow triggers
+VERCEL_BACKEND_URL   = os.environ.get("VERCEL_BACKEND_URL", "")
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +301,19 @@ def step_registration() -> int:
 # ---------------------------------------------------------------------------
 
 def step_payment() -> int:
-    """Pay for registered providers that require payment.  Returns count paid."""
-    logger.info("=== STEP 3: Payment ===")
+    """
+    For providers that require payment (= need an API key from the user):
+    trigger the Vercel payment-approval workflow which pauses for HIL.
+    The user enters the API key in the web UI — no Telegram needed.
+    Returns count of providers queued for HIL.
+    """
+    logger.info("=== STEP 3: Payment / API-key HIL ===")
+
+    if not VERCEL_BACKEND_URL:
+        logger.warning(
+            "VERCEL_BACKEND_URL not set — skipping HIL trigger for payment-required providers"
+        )
+        return 0
 
     with get_session() as session:
         providers_raw = session.scalars(
@@ -312,57 +323,56 @@ def step_payment() -> int:
             )
         ).all()
 
-        to_pay: list[tuple[dict, dict | None]] = []
+        to_queue: list[tuple[dict, dict | None]] = []
         for p in providers_raw:
             account_orm = session.scalar(
                 select(Account).where(Account.provider_id == p.id)
             )
             account_dict = _account_to_dict(account_orm) if account_orm else None
-            to_pay.append((_provider_to_dict(p), account_dict))
+            to_queue.append((_provider_to_dict(p), account_dict))
 
-    logger.info("Providers requiring payment: %d", len(to_pay))
+    logger.info("Providers requiring API-key approval: %d", len(to_queue))
 
-    if not to_pay:
-        # Also check if any needs_payment providers have been resolved via HIL
-        with get_session() as session:
-            resolved = session.scalars(
-                select(Provider).where(Provider.status == "paid")
-            ).all()
-            if resolved:
-                logger.info(
-                    "%d provider(s) already marked paid via Telegram HIL — will proceed to fingerprinting",
-                    len(resolved),
-                )
-        return 0
-
-    # For each provider that requires payment, notify human via Telegram and set needs_payment
-    needs_hil = 0
-    for pdict, account_dict in to_pay:
+    queued = 0
+    for pdict, account_dict in to_queue:
         provider_id = pdict["id"]
         provider_name = pdict["name"]
 
         logger.info(
-            "Provider %r requires payment — flagging for human review (HIL)", provider_name
-        )
-        with get_session() as session:
-            provider = session.get(Provider, provider_id)
-            if provider and provider.status == "registered":
-                provider.status = "needs_payment"
-                provider.notes = "needs_human_payment"
-                provider.updated_at = _now_utc()
-                needs_hil += 1
-
-    if needs_hil > 0:
-        logger.info(
-            "Flagged %d provider(s) as needs_payment — sending Telegram notifications", needs_hil
+            "Provider %r requires API key — triggering Vercel HIL workflow", provider_name
         )
         try:
-            hil_notify_pending()
+            import requests as _req
+            resp = _req.post(
+                f"{VERCEL_BACKEND_URL}/api/approval/start",
+                json={
+                    "provider_id":   provider_id,
+                    "provider_name": provider_name,
+                    "docs_url":      pdict.get("docs_url"),
+                    "pricing_url":   pdict.get("pricing_url"),
+                    "model_ids":     [],   # models added after registration
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            run_id = resp.json().get("run_id", "")
+            logger.info(
+                "HIL workflow started for %r — run_id=%r", provider_name, run_id
+            )
+            with get_session() as session:
+                provider = session.get(Provider, provider_id)
+                if provider and provider.status == "registered":
+                    provider.status = "needs_payment"
+                    provider.notes = f"hil_workflow:{run_id}"
+                    provider.updated_at = _now_utc()
+            queued += 1
         except Exception as exc:
-            logger.error("Failed to send HIL notifications: %s", exc, exc_info=True)
+            logger.error(
+                "Failed to trigger HIL workflow for %r: %s", provider_name, exc, exc_info=True
+            )
 
-    logger.info("Payment step complete. Flagged for HIL: %d", needs_hil)
-    return 0
+    logger.info("Payment/HIL step complete. Queued for web approval: %d", queued)
+    return queued
 
 
 # ---------------------------------------------------------------------------
@@ -370,16 +380,33 @@ def step_payment() -> int:
 # ---------------------------------------------------------------------------
 
 def step_fingerprinting() -> int:
-    """Submit and poll fingerprint jobs for eligible providers/models."""
+    """
+    Submit fingerprint jobs for eligible providers/models.
+
+    Routing:
+      - VERCEL_BACKEND_URL set → free-tier providers (status="registered",
+        requires_payment=False) are submitted to the Vercel crawl-fingerprint
+        workflow via POST /api/fingerprint/crawl-start.  The workflow runs
+        the job and stores results in Neon Postgres.  We poll the workflow
+        status endpoint to track completion and update our local SQLite.
+
+      - providers that went through HIL (status="approved" in Vercel DB) have
+        already been submitted by the payment-approval workflow's step 4.
+        The coordinator just marks them done when their Vercel run completes.
+
+      - Fallback (no VERCEL_BACKEND_URL): submit directly to the old FastAPI
+        backend and poll as before.  This keeps the old pipeline working
+        during the transition period.
+    """
     logger.info("=== STEP 4: Fingerprinting ===")
 
     fp_client = FingerprintClient(backend_url=BACKEND_URL)
 
-    # Load providers in 'registered' or 'paid' state
+    # Load free-tier providers in 'registered' state (requires_payment=False)
     with get_session() as session:
         providers_raw = session.scalars(
             select(Provider).where(
-                Provider.status.in_(["registered", "paid"])
+                Provider.status.in_(["registered", "paid"]),
             )
         ).all()
         eligible: list[tuple[dict, dict | None, list[dict]]] = []
@@ -389,7 +416,6 @@ def step_fingerprinting() -> int:
             )
             account_dict = _account_to_dict(account_orm) if account_orm else None
 
-            # Models not yet fingerprinted
             models_raw = session.scalars(
                 select(Model).where(
                     Model.provider_id == p.id,
@@ -419,6 +445,7 @@ def step_fingerprinting() -> int:
         provider_name = pdict["name"]
         api_key = (account_dict or {}).get("api_key", "")
         api_endpoint = pdict.get("base_url", "")
+        docs_url = pdict.get("docs_url")
 
         logger.info(
             "Fingerprinting %d model(s) for provider %r",
@@ -426,6 +453,93 @@ def step_fingerprinting() -> int:
             provider_name,
         )
 
+        # ── Path A: Vercel crawl-fingerprint workflow ─────────────────────────
+        if VERCEL_BACKEND_URL:
+            model_ids = [m["model_id"] for m in models]
+            try:
+                import requests as _req
+                resp = _req.post(
+                    f"{VERCEL_BACKEND_URL}/api/fingerprint/crawl-start",
+                    json={
+                        "provider_id":   provider_id,
+                        "provider_name": provider_name,
+                        "api_key":       api_key,
+                        "docs_url":      docs_url,
+                        "model_ids":     model_ids,
+                    },
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                run_ids = data.get("run_ids", [])
+                logger.info(
+                    "Submitted %d crawl-fingerprint workflow(s) for %r — run_ids=%r",
+                    len(run_ids), provider_name, run_ids,
+                )
+
+                # Poll each Vercel workflow run until done
+                import time as _time
+                for i, (mdata, run_id) in enumerate(zip(models, run_ids)):
+                    model_db_id = mdata["id"]
+                    model_id    = mdata["model_id"]
+                    deadline = _time.monotonic() + 600  # 10-minute timeout per model
+
+                    while _time.monotonic() < deadline:
+                        try:
+                            status_resp = _req.get(
+                                f"{VERCEL_BACKEND_URL}/api/fingerprint/status/{run_id}",
+                                timeout=10,
+                            )
+                            status_resp.raise_for_status()
+                            run_data = status_resp.json()
+                            run_status = run_data.get("status", "")
+
+                            if run_status == "completed":
+                                result = run_data.get("result") or {}
+                                fingerprint_hash = result.get("behavior_hash")
+                                verdict = result.get("verdict")
+                                with get_session() as session:
+                                    model_orm = session.get(Model, model_db_id)
+                                    if model_orm:
+                                        model_orm.fingerprint_hash = fingerprint_hash or "done"
+                                        model_orm.verdict = verdict
+                                        model_orm.fingerprinted_at = _now_utc()
+                                models_done_total += 1
+                                logger.info(
+                                    "Vercel workflow complete for %r/%r — verdict=%r",
+                                    provider_name, model_id, verdict,
+                                )
+                                break
+
+                            elif run_status == "failed":
+                                logger.warning(
+                                    "Vercel workflow %r failed for %r/%r",
+                                    run_id, provider_name, model_id,
+                                )
+                                break
+
+                        except Exception as poll_exc:
+                            logger.warning(
+                                "Poll error for run %r (%r/%r): %s",
+                                run_id, provider_name, model_id, poll_exc,
+                            )
+
+                        _time.sleep(15)
+                    else:
+                        logger.warning(
+                            "Vercel workflow %r timed out for %r/%r",
+                            run_id, provider_name, model_id,
+                        )
+
+            except Exception as exc:
+                logger.error(
+                    "Failed to submit Vercel crawl-fingerprint for %r: %s",
+                    provider_name, exc, exc_info=True,
+                )
+            # Skip the old polling loop for this provider
+            continue
+
+        # ── Path B: legacy direct FastAPI backend (no VERCEL_BACKEND_URL) ────
         models_done_this_provider = 0
 
         for mdata in models:
@@ -434,7 +548,6 @@ def step_fingerprinting() -> int:
             model_name = mdata["model_name"]
             job_id = mdata.get("fingerprint_job_id")
 
-            # Submit job if not already submitted
             if not job_id:
                 try:
                     job_id = fp_client.submit_job(
@@ -446,9 +559,7 @@ def step_fingerprinting() -> int:
                     )
                     logger.info(
                         "Submitted fingerprint job for %r/%r — job_id=%r",
-                        provider_name,
-                        model_name,
-                        job_id,
+                        provider_name, model_name, job_id,
                     )
                     with get_session() as session:
                         model_orm = session.get(Model, model_db_id)
@@ -457,26 +568,19 @@ def step_fingerprinting() -> int:
                 except Exception as exc:
                     logger.error(
                         "Failed to submit fingerprint job for %r/%r: %s",
-                        provider_name,
-                        model_name,
-                        exc,
-                        exc_info=True,
+                        provider_name, model_name, exc, exc_info=True,
                     )
                     continue
 
-            # Poll for completion
             try:
                 logger.info(
                     "Polling fingerprint job %r for %r/%r",
-                    job_id,
-                    provider_name,
-                    model_name,
+                    job_id, provider_name, model_name,
                 )
                 job_result = fp_client.poll_job(job_id, timeout_seconds=300, poll_interval=10)
                 status = job_result.get("status", "")
 
                 if status == "done":
-                    # Extract hash and verdict from result — field names may vary
                     result_payload = job_result.get("result") or job_result
                     fingerprint_hash = (
                         result_payload.get("fingerprint_hash")
@@ -488,45 +592,32 @@ def step_fingerprinting() -> int:
                         or result_payload.get("matched_model")
                         or result_payload.get("label")
                     )
-
                     with get_session() as session:
                         model_orm = session.get(Model, model_db_id)
                         if model_orm:
                             model_orm.fingerprint_hash = fingerprint_hash or "done"
                             model_orm.verdict = verdict
                             model_orm.fingerprinted_at = _now_utc()
-
                     models_done_this_provider += 1
                     models_done_total += 1
                     logger.info(
                         "Fingerprint complete for %r/%r — verdict=%r",
-                        provider_name,
-                        model_name,
-                        verdict,
+                        provider_name, model_name, verdict,
                     )
                 else:
                     logger.warning(
                         "Fingerprint job %r ended with status=%r for %r/%r",
-                        job_id,
-                        status,
-                        provider_name,
-                        model_name,
+                        job_id, status, provider_name, model_name,
                     )
             except TimeoutError:
                 logger.warning(
                     "Fingerprint job %r timed out for %r/%r",
-                    job_id,
-                    provider_name,
-                    model_name,
+                    job_id, provider_name, model_name,
                 )
             except Exception as exc:
                 logger.error(
                     "Polling error for job %r (%r/%r): %s",
-                    job_id,
-                    provider_name,
-                    model_name,
-                    exc,
-                    exc_info=True,
+                    job_id, provider_name, model_name, exc, exc_info=True,
                 )
 
         # If ALL models for this provider are now fingerprinted, mark provider done
@@ -539,7 +630,6 @@ def step_fingerprinting() -> int:
                     )
                 )
                 if remaining is None:
-                    # No un-fingerprinted models left
                     provider_orm = session.get(Provider, provider_id)
                     if provider_orm and provider_orm.status in ("registered", "paid"):
                         provider_orm.status = "done"

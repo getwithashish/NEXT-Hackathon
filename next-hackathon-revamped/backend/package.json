@@ -1,0 +1,21 @@
+{
+  "name": "next-hackathon-revamped-backend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "nitro dev --port 3001",
+    "build": "nitro build",
+    "start": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.30.10",
+    "nitro": "3.0.260603-beta",
+    "pg": "^8.11.3",
+    "workflow": "^4.3.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.5",
+    "drizzle-kit": "^0.21.4",
+    "typescript": "^5.6.2"
+  }
+}
