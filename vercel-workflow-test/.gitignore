@@ -1,0 +1,12 @@
+node_modules/
+.vercel/
+.next/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+dist/
+.nitro/
+.output/
+.workflow-data/
