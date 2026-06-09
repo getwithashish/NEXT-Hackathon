@@ -1,0 +1,82 @@
+# ── Hermes agent ─────────────────────────────────────────────────────────────
+.hermes/
+
+# ── VS Code ───────────────────────────────────────────────────────────────────
+.vscode/
+.vscode-server/
+
+# ── AWS credentials & infra ───────────────────────────────────────────────────
+.aws/
+*.pem
+.hackathon.env
+aws_cleanup.sh
+aws_infrastructure.sh
+AWS_SETUP_GUIDE.md
+AWS_SETUP_SUMMARY.md
+
+# ── SSH ───────────────────────────────────────────────────────────────────────
+.ssh/
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+backend/.env
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# ── Database ──────────────────────────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ── Node / frontend ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ── Model files (too large) ───────────────────────────────────────────────────
+*.pth
+*.onnx
+*.pt
+*.bin
+*.safetensors
+
+# ── Logs & caches ─────────────────────────────────────────────────────────────
+*.log
+logs/
+.cache/
+.npm/
+.local/
+.config/
+.bash_history
+.python_history
+.wget-hsts
+.cloud-locale-test.skip
+.profile
+.bashrc
+
+# ── Browser / playwright ──────────────────────────────────────────────────────
+.agent-browser/
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.tar.gz
+*.zip
+hackathon_startup.sh
