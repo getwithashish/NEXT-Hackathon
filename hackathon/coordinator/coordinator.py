@@ -43,6 +43,7 @@ from agents.discovery_agent import DiscoveryAgent
 from agents.registration_agent import RegistrationAgent
 from agents.payment_agent import PaymentAgent
 from agents.fingerprint_client import FingerprintClient
+from hil_bot import notify_pending as hil_notify_pending
 
 from database import (
     get_session,
@@ -303,10 +304,6 @@ def step_payment() -> int:
     """Pay for registered providers that require payment.  Returns count paid."""
     logger.info("=== STEP 3: Payment ===")
 
-    if not STRIPE_SECRET_KEY:
-        logger.warning("STRIPE_SECRET_KEY not set — skipping payment step")
-        return 0
-
     with get_session() as session:
         providers_raw = session.scalars(
             select(Provider).where(
@@ -326,96 +323,46 @@ def step_payment() -> int:
     logger.info("Providers requiring payment: %d", len(to_pay))
 
     if not to_pay:
+        # Also check if any needs_payment providers have been resolved via HIL
+        with get_session() as session:
+            resolved = session.scalars(
+                select(Provider).where(Provider.status == "paid")
+            ).all()
+            if resolved:
+                logger.info(
+                    "%d provider(s) already marked paid via Telegram HIL — will proceed to fingerprinting",
+                    len(resolved),
+                )
         return 0
 
-    pay_agent = PaymentAgent(
-        stripe_secret_key=STRIPE_SECRET_KEY,
-        spend_cap_usd=SPEND_CAP_USD,
-    )
-
-    succeeded = 0
+    # For each provider that requires payment, notify human via Telegram and set needs_payment
+    needs_hil = 0
     for pdict, account_dict in to_pay:
         provider_id = pdict["id"]
         provider_name = pdict["name"]
 
-        if account_dict is None:
-            logger.warning(
-                "No account found for %r — cannot pay, marking failed", provider_name
-            )
-            with get_session() as session:
-                provider = session.get(Provider, provider_id)
-                if provider:
-                    provider.status = "failed"
-                    provider.notes = "no_account_for_payment"
-                    provider.updated_at = _now_utc()
-            continue
+        logger.info(
+            "Provider %r requires payment — flagging for human review (HIL)", provider_name
+        )
+        with get_session() as session:
+            provider = session.get(Provider, provider_id)
+            if provider and provider.status == "registered":
+                provider.status = "needs_payment"
+                provider.notes = "needs_human_payment"
+                provider.updated_at = _now_utc()
+                needs_hil += 1
 
-        logger.info("Processing payment for provider: %r", provider_name)
-
+    if needs_hil > 0:
+        logger.info(
+            "Flagged %d provider(s) as needs_payment — sending Telegram notifications", needs_hil
+        )
         try:
-            result = pay_agent.pay_for_provider(pdict, account_dict, SPEND_CAP_USD)
+            hil_notify_pending()
         except Exception as exc:
-            logger.error(
-                "Unexpected payment error for %r: %s", provider_name, exc, exc_info=True
-            )
-            result = {
-                "success": False,
-                "card_id": None,
-                "amount_charged": 0.0,
-                "notes": f"error: {exc}",
-            }
+            logger.error("Failed to send HIL notifications: %s", exc, exc_info=True)
 
-        try:
-            with get_session() as session:
-                provider = session.get(Provider, provider_id)
-                if provider is None:
-                    continue
-
-                if result.get("success"):
-                    payment = Payment(
-                        id=str(uuid.uuid4()),
-                        provider_id=provider_id,
-                        amount_usd=result.get("amount_charged", SPEND_CAP_USD),
-                        stripe_card_id=result.get("card_id"),
-                        stripe_charge_id=result.get("charge_id"),
-                        status="succeeded",
-                    )
-                    session.add(payment)
-                    provider.status = "paid"
-                    provider.updated_at = _now_utc()
-                    succeeded += 1
-                    logger.info(
-                        "Payment succeeded for %r — $%.2f",
-                        provider_name,
-                        result.get("amount_charged", 0.0),
-                    )
-                else:
-                    payment = Payment(
-                        id=str(uuid.uuid4()),
-                        provider_id=provider_id,
-                        amount_usd=0.0,
-                        stripe_card_id=result.get("card_id"),
-                        status="failed",
-                    )
-                    session.add(payment)
-                    provider.status = "failed"
-                    provider.notes = result.get("notes", "payment_failed")
-                    provider.updated_at = _now_utc()
-                    logger.warning(
-                        "Payment failed for %r — %s",
-                        provider_name,
-                        result.get("notes"),
-                    )
-        except Exception as exc:
-            logger.error(
-                "DB update failed after payment for %r: %s",
-                provider_name,
-                exc,
-                exc_info=True,
-            )
-
-    logger.info("Payment step complete. Succeeded: %d", succeeded)
-    return succeeded
+    logger.info("Payment step complete. Flagged for HIL: %d", needs_hil)
+    return 0
 
 
 # ---------------------------------------------------------------------------
