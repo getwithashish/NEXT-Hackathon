@@ -11,8 +11,8 @@ Decision logic:
   .pth > 4 GB             → GPU  → g4dn.xlarge   (1x T4 GPU, 16 GB RAM)
   API-based model         → CPU  → t3.medium     (behavioral probing only)
 
-All instances run the worker script via EC2 user-data, push results to S3,
-then self-terminate.
+All instances run the worker script via EC2 user-data, POST results back to
+the backend callback endpoint, then self-terminate.
 """
 
 import boto3
@@ -62,6 +62,9 @@ class JobSpec:
     model_size_mb: float = 0.0
     api_endpoint: Optional[str] = None
     api_key: Optional[str] = None
+    model_hint: Optional[str] = None
+    request_template: Optional[dict] = None  # pre-resolved Postman-style template
+
     result_s3_key: str = field(init=False)
 
     def __post_init__(self):
@@ -126,19 +129,31 @@ class EC2OrchestratorAgent:
     def _build_user_data(self, job: JobSpec, cfg: InstanceConfig) -> str:
         """
         Shell script injected as EC2 user-data.
-        Runs on boot, does the work, uploads result, self-terminates.
+        Runs on boot, does the work, POSTs result to backend, self-terminates.
         """
+        import json as _json
+        exa_key      = os.getenv("EXA_API_KEY", "")
+        backend_url  = os.getenv("BACKEND_URL", "http://54.86.179.209:8000")
+        # Serialize template as single-quoted JSON (safe for bash export)
+        request_template_json = (
+            "'" + _json.dumps(job.request_template or {}).replace("'", "'\\''") + "'"
+        )
         script = f"""#!/bin/bash
 set -e
 exec > /var/log/fingerprint-worker.log 2>&1
 
 echo "[$(date)] Worker starting — job {job.job_id}"
 
-# Install deps (DLAMI has torch/onnx, but install extras)
-pip install anthropic boto3 numpy scipy scikit-learn onnxruntime --quiet
+# Ensure pip is available
+dnf install -y python3-pip --quiet 2>&1 || true
 
-# Pull worker script from S3
-aws s3 cp s3://{S3_BUCKET}/scripts/fingerprint_worker.py /tmp/fingerprint_worker.py
+# Install deps
+python3 -m pip install boto3 numpy scipy scikit-learn onnxruntime exa-py --quiet --ignore-installed 2>&1
+
+# Pull worker scripts from S3
+/usr/bin/aws s3 cp s3://{S3_BUCKET}/scripts/fingerprint_worker.py /tmp/fingerprint_worker.py
+/usr/bin/aws s3 cp s3://{S3_BUCKET}/scripts/api_caller_agent.py /tmp/api_caller_agent.py
+/usr/bin/aws s3 cp s3://{S3_BUCKET}/scripts/doc_reader_agent.py /tmp/doc_reader_agent.py
 
 # Set environment
 export AWS_S3_BUCKET="{S3_BUCKET}"
@@ -149,17 +164,23 @@ export S3_MODEL_KEY="{job.s3_model_key or ''}"
 export RESULT_S3_KEY="{job.result_s3_key}"
 export API_ENDPOINT="{job.api_endpoint or ''}"
 export API_KEY="{job.api_key or ''}"
+export MODEL_HINT="{job.model_hint or ''}"
+export EXA_API_KEY="{exa_key}"
+export BACKEND_URL="{backend_url}"
+export RESPONSES_S3_KEY="results/{job.job_id}/responses.json"
+export REQUEST_TEMPLATE={request_template_json}
 
 # Run fingerprinting
-python3 /tmp/fingerprint_worker.py
+/usr/bin/python3 /tmp/fingerprint_worker.py
 
 echo "[$(date)] Worker done — self-terminating instance"
 
-# Self-terminate
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region {AWS_REGION}
+# Self-terminate (IMDSv2 requires token)
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+/usr/bin/aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region {AWS_REGION}
 """
-        return base64.b64encode(script.encode()).decode()
+        return script  # boto3 run_instances handles base64 encoding internally
 
     # ── 3. Launch instance ───────────────────────────────────────────────────
 
@@ -220,44 +241,15 @@ aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region {AWS_REGION}
             "status": "launched",
         }
 
-    # ── 4. Poll for result ───────────────────────────────────────────────────
+    # ── 4. (Removed) Poll for result ─────────────────────────────────────────
+    # Result now arrives via direct HTTP callback: worker POSTs to
+    # POST /internal/job/{job_id}/complete on the backend server.
+    # No S3 polling, no waiting. This method kept as a stub for CLI tests.
 
     def wait_for_result(self, job: JobSpec, poll_interval: int = 15, timeout_min: int = 30) -> dict:
-        """
-        Polls S3 for the result file. Instance self-terminates after uploading it.
-        Returns the fingerprint result dict.
-        """
-        deadline = time.time() + timeout_min * 60
-        print(f"⏳ Waiting for result at s3://{S3_BUCKET}/{job.result_s3_key} ...")
-
-        while time.time() < deadline:
-            try:
-                obj = self.s3.get_object(Bucket=S3_BUCKET, Key=job.result_s3_key)
-                result = json.loads(obj["Body"].read())
-                print(f"✅ Result received!")
-                return result
-            except self.s3.exceptions.NoSuchKey:
-                pass
-            except Exception as e:
-                print(f"   Poll error (will retry): {e}")
-
-            # Check if instance is still alive
-            iid = self.running_instances.get(job.job_id)
-            if iid:
-                resp = self.ec2.describe_instances(InstanceIds=[iid])
-                state = resp["Reservations"][0]["Instances"][0]["State"]["Name"]
-                print(f"   Instance {iid} state: {state}")
-                if state in ("terminated", "shutting-down"):
-                    # Instance is gone — check S3 one more time
-                    try:
-                        obj = self.s3.get_object(Bucket=S3_BUCKET, Key=job.result_s3_key)
-                        return json.loads(obj["Body"].read())
-                    except:
-                        return {"error": "Instance terminated but no result found in S3", "job_id": job.job_id}
-
-            time.sleep(poll_interval)
-
-        return {"error": "Timeout waiting for result", "job_id": job.job_id}
+        """Deprecated — result now arrives via direct callback. Stub for compat."""
+        print("ℹ️  wait_for_result() is deprecated — worker posts result directly to backend")
+        return {"status": "pending", "job_id": job.job_id}
 
     # ── 5. Force-terminate (emergency cleanup) ───────────────────────────────
 
