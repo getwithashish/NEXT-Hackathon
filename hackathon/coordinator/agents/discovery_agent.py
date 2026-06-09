@@ -111,7 +111,7 @@ class DiscoveryAgent:
             service_name="bedrock-runtime",
             region_name="us-east-1",
         )
-        self.model_id = "us.amazon.nova-lite-v1:0"
+        self.model_id = "us.anthropic.claude-haiku-4-5:0"
 
     def _search_all_queries(self, existing_urls: set) -> list[str]:
         """Run all search queries and return a deduplicated list of new URLs."""
@@ -150,22 +150,21 @@ class DiscoveryAgent:
 
     def _extract_provider_info(self, url: str) -> dict | None:
         """
-        Call Nova Lite via Bedrock to extract structured provider info for a URL.
+        Call Claude Haiku via Bedrock to extract structured provider info for a URL.
         Returns a parsed dict or None on failure.
         """
         prompt = EXTRACTION_PROMPT.format(url=url)
 
         request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1024,
+            "temperature": 0.0,
             "messages": [
                 {
                     "role": "user",
-                    "content": [{"text": prompt}],
+                    "content": [{"type": "text", "text": prompt}],
                 }
             ],
-            "inferenceConfig": {
-                "maxTokens": 1024,
-                "temperature": 0.0,
-            },
         }
 
         try:
@@ -176,17 +175,12 @@ class DiscoveryAgent:
                 body=json.dumps(request_body),
             )
             body = json.loads(response["body"].read())
-            # Nova response format: output -> message -> content[0] -> text
-            output_text = (
-                body.get("output", {})
-                .get("message", {})
-                .get("content", [{}])[0]
-                .get("text", "")
-            )
+            # Claude on Bedrock response format: content[0].text
+            output_text = body.get("content", [{}])[0].get("text", "")
             provider = _parse_json_from_response(output_text)
             if provider is None:
                 logger.warning(
-                    f"Could not parse JSON from Nova response for URL: {url}. "
+                    f"Could not parse JSON from Claude response for URL: {url}. "
                     f"Raw output: {output_text[:200]!r}"
                 )
             return provider

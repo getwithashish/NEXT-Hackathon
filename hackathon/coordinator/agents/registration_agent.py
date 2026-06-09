@@ -58,26 +58,23 @@ Respond ONLY with valid JSON. No extra text."""
 
     body = json.dumps(
         {
-            "messages": [{"role": "user", "content": prompt}],
-            "inferenceConfig": {"maxTokens": 512, "temperature": 0.1},
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 512,
+            "temperature": 0.1,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
         }
     )
 
     response = client.invoke_model(
-        modelId="us.amazon.nova-lite-v1:0",
+        modelId="us.anthropic.claude-haiku-4-5:0",
         body=body,
         contentType="application/json",
         accept="application/json",
     )
 
     result_body = json.loads(response["body"].read())
-    # Nova response structure: output.message.content[0].text
-    raw_text = (
-        result_body.get("output", {})
-        .get("message", {})
-        .get("content", [{}])[0]
-        .get("text", "{}")
-    )
+    # Claude on Bedrock response structure: content[0].text
+    raw_text = result_body.get("content", [{}])[0].get("text", "{}")
 
     # Strip markdown code fences if present
     raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text.strip())

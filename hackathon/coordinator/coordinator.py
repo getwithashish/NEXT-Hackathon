@@ -118,7 +118,7 @@ def step_discovery() -> int:
     # Load existing base_urls
     with get_session() as session:
         existing_urls: set[str] = {
-            row.base_url
+            row
             for row in session.scalars(select(Provider.base_url)).all()
             if row
         }
