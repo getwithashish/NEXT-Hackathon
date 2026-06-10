@@ -151,11 +151,8 @@ function JobDetailSheet({ job, onClose }: { job: Job; onClose: () => void }) {
             )}
           </div>
 
-          {job.similarity_score != null && (
-            <div className="space-y-2">
-              <p className="text-[12px] font-[510] text-text-secondary">Similarity Score</p>
-              <SimilarityMeter value={job.similarity_score} />
-            </div>
+          {job.similarity_score != null && job.similarity_score > 0 && (
+            <SimilarityMeter value={job.similarity_score} />
           )}
 
           {job.fingerprint_hash && (
