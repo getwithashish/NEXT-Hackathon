@@ -59,12 +59,12 @@ from sqlalchemy import select
 # Configuration from environment variables
 # ---------------------------------------------------------------------------
 
-EXA_API_KEY=os.env...EY", "")
+EXA_API_KEY            = os.environ.get("EXA_API_KEY", "")
 IMAP_HOST            = os.environ.get("IMAP_HOST", "mail.openpic.in")
 IMAP_USER            = os.environ.get("IMAP_USER", "nextman@openpic.in")
 IMAP_PASS            = os.environ.get("IMAP_PASS", "")
 REGISTRATION_EMAIL   = os.environ.get("REGISTRATION_EMAIL", "nextman@openpic.in")
-REGISTRATION_PASSWORD=os.env...RD", "")
+REGISTRATION_PASSWORD  = os.environ.get("REGISTRATION_PASSWORD", "")
 BACKEND_URL          = os.environ.get("BACKEND_URL", "http://54.86.179.209:8000")
 # Vercel Nitro backend URL — hosts all Vercel Workflow triggers
 VERCEL_BACKEND_URL   = os.environ.get("VERCEL_BACKEND_URL", "")
