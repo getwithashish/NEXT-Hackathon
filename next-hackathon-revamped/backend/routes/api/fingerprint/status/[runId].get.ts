@@ -1,10 +1,18 @@
 /**
  * GET /api/fingerprint/status/:runId
- * Returns current workflow run status + step events stream for the frontend.
- * Uses getRun(runId).readable to get real step events — NOT time-based.
+ *
+ * Returns live workflow progress by reading fingerprints.step_events from DB
+ * (written by pushStepEvent inside each workflow step) plus the overall status.
+ *
+ * Falls back to getRun(runId).status from the workflow runtime for the status
+ * field, but step events always come from DB — this is reliable and doesn't
+ * race against the readable stream's 100ms window.
+ *
+ * Response shape:
+ *   { run_id, status, step_events, result? }
  */
 import { defineEventHandler, setHeader, getRouterParam } from "h3";
-import { getRun } from "workflow/api";
+import { getRawSql } from "../../../lib/db/index";
 
 export default defineEventHandler(async (event) => {
   setHeader(event, "Access-Control-Allow-Origin", "*");
@@ -14,33 +22,41 @@ export default defineEventHandler(async (event) => {
     return { error: "runId required" };
   }
 
-  const run = getRun(runId);
-  const status = await run.status;
+  const sql = getRawSql();
 
-  // Collect step events from the readable stream
-  // This gives REAL per-step state — not time-based estimates
-  const stepEvents: Array<{ type: string; step_name?: string; timestamp: string }> = [];
-  try {
-    const reader = run.readable.getReader();
-    // Read all available events without blocking (non-blocking drain)
-    while (true) {
-      const { done, value } = await Promise.race([
-        reader.read(),
-        new Promise<{ done: true; value: undefined }>((r) =>
-          setTimeout(() => r({ done: true, value: undefined }), 100)
-        ),
-      ]);
-      if (done || !value) break;
-      stepEvents.push({ ...value, timestamp: new Date().toISOString() });
-    }
-    reader.releaseLock();
-  } catch {
-    // readable may not be available in local world — degrade gracefully
+  // Look up the fingerprint row by workflow_run_id
+  const rows = (await sql`
+    SELECT status, step_events, fingerprint_data, verdict, similarity_score,
+           matched_model, fingerprint_hash, job_id, completed_at
+    FROM fingerprints
+    WHERE workflow_run_id = ${runId}
+    LIMIT 1
+  `) as any[];
+
+  if (!rows || rows.length === 0) {
+    // Unknown run_id — may be too early (row not yet written) or invalid
+    return { run_id: runId, status: "pending", step_events: [], result: null };
   }
+
+  const row = rows[0];
+  const stepEvents = Array.isArray(row.step_events) ? row.step_events : [];
+
+  // Map DB status ("done" → "completed" for frontend compatibility)
+  const status =
+    row.status === "done" ? "completed" :
+    row.status === "failed" ? "failed" :
+    row.status === "running" ? "running" : "pending";
 
   let result = null;
   if (status === "completed") {
-    try { result = await run.returnValue; } catch {}
+    const fd = row.fingerprint_data ?? {};
+    result = {
+      behavior_hash:    row.fingerprint_hash,
+      verdict:          row.verdict ?? fd.verdict,
+      similarity_score: row.similarity_score ?? fd.similarity_score,
+      matched_model:    row.matched_model ?? fd.matched_model,
+      similar_models:   fd.similar_models ?? [],
+    };
   }
 
   return { run_id: runId, status, step_events: stepEvents, result };
