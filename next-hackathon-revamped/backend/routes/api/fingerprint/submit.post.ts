@@ -7,6 +7,7 @@ import { defineEventHandler, readBody, setHeader } from "h3";
 import { start } from "workflow/api";
 import { fingerprintOnDemandWorkflow } from "../../../workflows/fingerprint-on-demand";
 import { db, fingerprints } from "../../../lib/db/index";
+import { eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
 export default defineEventHandler(async (event) => {
@@ -46,7 +47,7 @@ export default defineEventHandler(async (event) => {
   await db
     .update(fingerprints)
     .set({ workflow_run_id: run.runId, status: "running" })
-    .where((t: any) => t.job_id.eq(jobId));
+    .where(eq(fingerprints.job_id, jobId));
 
   return { job_id: jobId, run_id: run.runId, status: "started" };
 });
