@@ -85,6 +85,7 @@ export default defineEventHandler(async () => {
     `;
 
     /* v1.1 — add embedding columns to fingerprints (safe on existing tables) */
+    await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS verdict           TEXT`;
     await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS embedding_vectors JSONB`;
     await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS mean_vector        JSONB`;
     await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS similarity_score   REAL`;
