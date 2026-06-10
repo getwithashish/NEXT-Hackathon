@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Fingerprint, ClipboardList, Clock, Activity, Menu, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Fingerprint, ClipboardList, Clock, Activity, Menu, X, LogIn, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSession, signOut } from "@/lib/auth-client";
+import Image from "next/image";
 
 const links = [
   { href: "/",            label: "Dashboard",   icon: Activity },
@@ -15,7 +17,16 @@ const links = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const { data: session } = useSession();
+  const user = session?.user;
+
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+    setOpen(false);
+  }
 
   return (
     <>
@@ -58,8 +69,47 @@ export function Navbar() {
             })}
           </nav>
 
-          {/* Right: CTA (desktop) + hamburger (mobile) */}
+          {/* Right: user / sign-in + hamburger */}
           <div className="ml-auto flex items-center gap-2">
+
+            {/* Desktop: user info or sign-in */}
+            {user ? (
+              <div className="hidden md:flex items-center gap-2">
+                {user.image ? (
+                  <Image
+                    src={user.image}
+                    alt={user.name ?? "avatar"}
+                    width={28}
+                    height={28}
+                    className="rounded-full ring-1 ring-white/10"
+                  />
+                ) : (
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/20 text-[12px] font-[600] text-accent-bright ring-1 ring-accent/20">
+                    {(user.name ?? user.email ?? "?")[0].toUpperCase()}
+                  </span>
+                )}
+                <span className="text-[13px] text-text-secondary max-w-[120px] truncate">
+                  {user.name ?? user.email}
+                </span>
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] text-text-muted hover:bg-white/5 hover:text-text-secondary transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="hidden md:flex items-center gap-1.5 rounded-md border border-white/[0.08] px-3 py-1.5 text-[13px] font-[510] text-text-secondary hover:bg-white/5 hover:text-text-primary transition-colors"
+              >
+                <LogIn className="h-3.5 w-3.5" />
+                Sign in
+              </Link>
+            )}
+
             {/* Hamburger — mobile only */}
             <button
               onClick={() => setOpen((v) => !v)}
@@ -96,7 +146,39 @@ export function Navbar() {
               })}
             </nav>
 
-
+            {/* Mobile sign-in / sign-out */}
+            <div className="mt-3 border-t border-white/5 pt-3">
+              {user ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-3 py-1">
+                    {user.image ? (
+                      <Image src={user.image} alt="" width={24} height={24} className="rounded-full" />
+                    ) : (
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-[11px] font-[600] text-accent-bright">
+                        {(user.name ?? user.email ?? "?")[0].toUpperCase()}
+                      </span>
+                    )}
+                    <span className="text-[13px] text-text-secondary truncate">{user.name ?? user.email}</span>
+                  </div>
+                  <button
+                    onClick={handleSignOut}
+                    className="flex w-full items-center gap-2 rounded px-3 py-2.5 text-[14px] text-text-muted hover:bg-white/5 hover:text-text-secondary transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2 rounded px-3 py-2.5 text-[14px] text-text-muted hover:bg-white/5 hover:text-text-secondary transition-colors"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Sign in
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </header>
