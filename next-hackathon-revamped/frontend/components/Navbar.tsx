@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Fingerprint, ClipboardList, Clock, Activity, Menu, X, Plus } from "lucide-react";
+import { Fingerprint, ClipboardList, Clock, Activity, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -60,14 +60,6 @@ export function Navbar() {
 
           {/* Right: CTA (desktop) + hamburger (mobile) */}
           <div className="ml-auto flex items-center gap-2">
-            <Link
-              href="/fingerprint"
-              className="hidden sm:flex items-center gap-1.5 rounded-md bg-accent-gradient px-3.5 py-1.5 text-[13px] font-[560] text-white shadow-glow-accent-sm transition-all hover:shadow-glow-accent hover:-translate-y-px"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New Job
-            </Link>
-
             {/* Hamburger — mobile only */}
             <button
               onClick={() => setOpen((v) => !v)}
@@ -104,16 +96,7 @@ export function Navbar() {
               })}
             </nav>
 
-            <div className="mt-3 border-t border-white/5 pt-3">
-              <Link
-                href="/fingerprint"
-                onClick={() => setOpen(false)}
-                className="flex w-full items-center justify-center gap-2 rounded bg-accent py-2.5 text-[14px] font-[590] text-white transition-colors hover:bg-accent-hover"
-              >
-                <Plus className="h-4 w-4" />
-                New Job
-              </Link>
-            </div>
+
           </div>
         )}
       </header>
