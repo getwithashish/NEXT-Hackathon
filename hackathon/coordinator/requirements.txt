@@ -1,7 +1,0 @@
-sqlalchemy>=2.0
-exa-py
-boto3
-requests
-stripe
-playwright
-python-dotenv
