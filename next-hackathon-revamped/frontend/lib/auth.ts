@@ -1,8 +1,12 @@
 import { betterAuth } from "better-auth";
-import pg from "pg";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
+
+// Required for Neon serverless WebSocket transport
+neonConfig.webSocketConstructor = ws;
 
 export const auth = betterAuth({
-  database: new pg.Pool({
+  database: new Pool({
     connectionString: process.env.DATABASE_URL!,
   }),
   socialProviders: {
