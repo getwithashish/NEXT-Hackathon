@@ -345,10 +345,10 @@ export default function JobsPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-md border border-white/6">
+      <div className="surface-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-left text-[13px]">
-            <thead className="border-b border-white/6 bg-white/[0.02]">
+            <thead className="border-b border-white/[0.07] bg-white/[0.03]">
               <tr>
                 {([
                   ["model_name",       "Model"],

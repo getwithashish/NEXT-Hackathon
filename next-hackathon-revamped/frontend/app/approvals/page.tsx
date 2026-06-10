@@ -68,7 +68,7 @@ function ApprovalCard({
   }
 
   return (
-    <div className="rounded-md border border-white/6 bg-white/[0.02] p-5 space-y-4 transition-colors hover:border-white/8">
+    <div className="surface-card hairline-top p-5 space-y-4 transition-all hover:border-white/[0.10] hover:shadow-elevation-high">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -235,7 +235,7 @@ export default function ApprovalsPage() {
           {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : providers.length === 0 ? (
-        <div className="rounded-md border border-white/6 bg-white/[0.02]">
+        <div className="surface-card">
           <EmptyState
             icon={Clock}
             title="No pending approvals"

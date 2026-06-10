@@ -15,14 +15,14 @@ export function PageHeader({ title, subtitle, icon: Icon, action, className }: P
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           {Icon && (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 border border-accent/20">
-              <Icon className="h-4 w-4 text-accent-bright" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-gradient shadow-glow-accent-sm">
+              <Icon className="h-5 w-5 text-white" />
             </div>
           )}
           <div className="min-w-0">
             <h1
-              className="text-xl sm:text-2xl font-[590] tracking-tight text-text-primary truncate"
-              style={{ letterSpacing: "-0.288px" }}
+              className="text-xl sm:text-[26px] font-[640] tracking-tight text-text-primary truncate"
+              style={{ letterSpacing: "-0.5px" }}
             >
               {title}
             </h1>

@@ -19,23 +19,25 @@ export function Navbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full border-b border-white/5 bg-[#0f1011]/90 backdrop-blur-md">
-        <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4 sm:px-6">
+      <header className="sticky top-0 z-40 w-full border-b border-white/[0.07] bg-[#0b0c0d]/80 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4 sm:px-6">
 
           {/* Brand */}
           <Link
             href="/"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2 shrink-0"
+            className="flex items-center gap-2.5 shrink-0 group"
           >
-            <Fingerprint className="h-5 w-5 text-accent-bright" />
-            <span className="text-sm font-[510] tracking-tight text-text-primary">
+            <span className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-accent-gradient shadow-glow-accent-sm transition-transform group-hover:scale-105">
+              <Fingerprint className="h-4 w-4 text-white" />
+            </span>
+            <span className="text-[15px] font-[600] tracking-tight text-gradient">
               llmHash
             </span>
           </Link>
 
           {/* Desktop nav links */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-0.5 ml-2">
             {links.map(({ href, label, icon: Icon }) => {
               const active = pathname === href || (href !== "/" && pathname.startsWith(href));
               return (
@@ -43,13 +45,13 @@ export function Navbar() {
                   key={href}
                   href={href}
                   className={cn(
-                    "flex items-center gap-1.5 rounded px-3 py-1.5 text-[13px] font-[510] transition-colors",
+                    "relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-[510] transition-all duration-150",
                     active
-                      ? "bg-white/5 text-text-primary"
-                      : "text-text-muted hover:bg-white/5 hover:text-text-secondary"
+                      ? "bg-white/[0.07] text-text-primary shadow-elevation-low"
+                      : "text-text-muted hover:bg-white/[0.04] hover:text-text-secondary"
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className={cn("h-3.5 w-3.5", active && "text-accent-bright")} />
                   {label}
                 </Link>
               );
@@ -60,7 +62,7 @@ export function Navbar() {
           <div className="ml-auto flex items-center gap-2">
             <Link
               href="/fingerprint"
-              className="hidden sm:flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-[13px] font-[510] text-white transition-colors hover:bg-accent-hover"
+              className="hidden sm:flex items-center gap-1.5 rounded-md bg-accent-gradient px-3.5 py-1.5 text-[13px] font-[560] text-white shadow-glow-accent-sm transition-all hover:shadow-glow-accent hover:-translate-y-px"
             >
               <Plus className="h-3.5 w-3.5" />
               New Job
@@ -70,7 +72,7 @@ export function Navbar() {
             <button
               onClick={() => setOpen((v) => !v)}
               aria-label="Toggle menu"
-              className="md:hidden flex h-8 w-8 items-center justify-center rounded border border-white/6 text-text-muted hover:bg-white/5 hover:text-text-primary transition-colors"
+              className="md:hidden flex h-8 w-8 items-center justify-center rounded-md border border-white/[0.07] text-text-muted hover:bg-white/5 hover:text-text-primary transition-colors"
             >
               {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>

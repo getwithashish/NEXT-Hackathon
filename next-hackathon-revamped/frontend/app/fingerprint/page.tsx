@@ -105,7 +105,7 @@ export default function FingerprintPage() {
         {/* Form — full width on mobile, 3 cols on lg */}
         <form
           onSubmit={handleSubmit}
-          className="lg:col-span-3 rounded-md border border-white/6 bg-white/[0.02] p-4 sm:p-6 space-y-5"
+          className="surface-card hairline-top lg:col-span-3 p-5 sm:p-7 space-y-5"
         >
           {/* API Endpoint */}
           <div className="space-y-1.5">
@@ -116,8 +116,8 @@ export default function FingerprintPage() {
               required
               value={apiEndpoint}
               onChange={(e) => setApiEndpoint(e.target.value)}
+              className="w-full rounded-md border border-white/[0.08] bg-black/30 px-3.5 py-2.5 text-[14px] text-text-primary placeholder-text-subtle transition-all focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:bg-black/40"
               placeholder="https://api.openai.com/v1"
-              className="w-full rounded border border-white/6 bg-bg-panel px-3 py-2 text-[14px] text-text-primary placeholder-text-subtle transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
             />
           </div>
 
@@ -133,7 +133,7 @@ export default function FingerprintPage() {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="sk-..."
-                className="w-full rounded border border-white/6 bg-bg-panel px-3 py-2 pr-10 text-[14px] font-mono text-text-primary placeholder-text-subtle transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
+                className="w-full rounded-md border border-white/[0.08] bg-black/30 px-3.5 py-2.5 pr-10 text-[14px] font-mono text-text-primary placeholder-text-subtle transition-all focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:bg-black/40"
               />
               <button
                 type="button"
@@ -152,7 +152,7 @@ export default function FingerprintPage() {
               value={modelName}
               onChange={(e) => setModelName(e.target.value)}
               placeholder="e.g. gpt-4o, claude-3-5-sonnet-20241022"
-              className="w-full rounded border border-white/6 bg-bg-panel px-3 py-2 text-[14px] text-text-primary placeholder-text-subtle transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
+              className="w-full rounded-md border border-white/[0.08] bg-black/30 px-3.5 py-2.5 text-[14px] text-text-primary placeholder-text-subtle transition-all focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:bg-black/40"
             />
           </div>
 
@@ -173,7 +173,7 @@ export default function FingerprintPage() {
                 <select
                   value={modelHint}
                   onChange={(e) => setModelHint(e.target.value)}
-                  className="w-full rounded border border-white/6 bg-bg-panel px-3 py-2 text-[14px] text-text-primary transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
+                  className="w-full rounded-md border border-white/[0.08] bg-black/30 px-3.5 py-2.5 text-[14px] text-text-primary transition-all focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:bg-black/40"
                 >
                   <option value="">Select provider family…</option>
                   {PROVIDERS.map((p) => (
@@ -191,7 +191,7 @@ export default function FingerprintPage() {
                   value={docUrl}
                   onChange={(e) => setDocUrl(e.target.value)}
                   placeholder="https://docs.provider.com/api-reference"
-                  className="w-full rounded border border-white/6 bg-bg-panel px-3 py-2 text-[14px] text-text-primary placeholder-text-subtle transition-colors focus:border-accent/50 focus:outline-none focus:ring-1 focus:ring-accent/20"
+                  className="w-full rounded-md border border-white/[0.08] bg-black/30 px-3.5 py-2.5 text-[14px] text-text-primary placeholder-text-subtle transition-all focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:bg-black/40"
                 />
               </div>
             </div>
@@ -209,10 +209,10 @@ export default function FingerprintPage() {
             type="submit"
             disabled={loading}
             className={cn(
-              "w-full rounded py-2.5 text-[14px] font-[590] text-white transition-all",
+              "w-full rounded-md py-3 text-[14px] font-[590] text-white transition-all",
               loading
                 ? "cursor-not-allowed bg-accent/50"
-                : "bg-accent hover:bg-accent-hover active:scale-[0.98]"
+                : "bg-accent-gradient shadow-glow-accent-sm hover:shadow-glow-accent hover:-translate-y-px active:scale-[0.98]"
             )}
           >
             {loading ? (
@@ -229,13 +229,16 @@ export default function FingerprintPage() {
         <div className="lg:col-span-2 space-y-4">
           {/* How it works card (before run) */}
           {!runStatus && (
-            <div className="rounded-md border border-white/6 bg-white/[0.02] p-5 animate-fade-in">
-              <h3 className="mb-3 text-[13px] font-[590] text-text-secondary">How it works</h3>
-              <ol className="space-y-2.5">
-                {["Submit your model's API endpoint + key", "Agent probes with 15 behavioral prompts", "Fingerprint hash computed from responses", "Compared against 10+ known model signatures", "Verdict: Original / Similar / Clone Suspect"].map((s, i) => (
-                  <li key={i} className="flex items-start gap-2.5 text-[13px] text-text-muted">
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/10 text-[10px] font-[590] text-accent-bright">{i + 1}</span>
-                    {s}
+            <div className="surface-card hairline-top p-5 animate-fade-in">
+              <h3 className="mb-4 text-[13px] font-[590] text-text-secondary">How it works</h3>
+              <ol className="space-y-3">
+                {["Submit your model's API endpoint + key", "Agent probes with 15 behavioral prompts", "Fingerprint hash computed from responses", "Compared against 10+ known model signatures", "Verdict: Original / Similar / Clone Suspect"].map((s, i, arr) => (
+                  <li key={i} className="relative flex items-start gap-3 text-[13px] text-text-muted">
+                    {i < arr.length - 1 && (
+                      <span className="absolute left-[11px] top-6 h-[calc(100%-4px)] w-px bg-gradient-to-b from-accent/30 to-transparent" />
+                    )}
+                    <span className="relative z-10 mt-0 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-accent/15 text-[11px] font-[640] text-accent-bright ring-1 ring-accent/20">{i + 1}</span>
+                    <span className="pt-0.5">{s}</span>
                   </li>
                 ))}
               </ol>
@@ -244,7 +247,7 @@ export default function FingerprintPage() {
 
           {/* Workflow progress */}
           {runStatus && (
-            <div className="rounded-md border border-white/6 bg-white/[0.02] p-5 animate-fade-in">
+            <div className="surface-card hairline-top p-5 animate-fade-in">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-[13px] font-[590] text-text-primary">Workflow Progress</h3>
                 <span className={cn(

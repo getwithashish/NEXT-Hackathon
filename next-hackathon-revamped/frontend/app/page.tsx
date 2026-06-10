@@ -349,7 +349,7 @@ function DrillModal({
 function ClickableStatCard({ onClick, ...props }: React.ComponentProps<typeof StatCard> & { onClick: () => void }) {
   return (
     <button onClick={onClick} className="w-full text-left group">
-      <StatCard {...props} className="group-hover:bg-white/[0.04] group-hover:border-white/10 transition-all duration-200 cursor-pointer" />
+      <StatCard {...props} className="cursor-pointer group-hover:-translate-y-0.5 group-hover:border-white/[0.12] group-hover:shadow-elevation-high" />
     </button>
   );
 }
@@ -408,7 +408,7 @@ export default function DashboardPage() {
         action={
           <Link
             href="/fingerprint"
-            className="rounded bg-accent px-3 py-1.5 text-[13px] font-[510] text-white hover:bg-accent-hover transition-colors whitespace-nowrap"
+            className="rounded-md bg-accent-gradient px-3.5 py-2 text-[13px] font-[560] text-white shadow-glow-accent-sm hover:shadow-glow-accent hover:-translate-y-px transition-all whitespace-nowrap"
           >
             + Fingerprint a Model
           </Link>
@@ -443,7 +443,7 @@ export default function DashboardPage() {
       {/* Charts + activity */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         {/* Similarity chart */}
-        <div className="lg:col-span-3 rounded-md border border-white/6 bg-white/[0.02] p-4 sm:p-5">
+        <div className="surface-card hairline-top lg:col-span-3 p-4 sm:p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-[14px] font-[590] text-text-primary" style={{ letterSpacing: "-0.182px" }}>
               Similarity Scores
@@ -454,13 +454,16 @@ export default function DashboardPage() {
             ? <div className="h-[220px] flex items-center justify-center"><Skeleton className="h-32 w-full" /></div>
             : <SimilarityBarChart jobs={jobs} />
           }
-          <p className="mt-3 text-[11px] text-text-subtle">
-            ≥95% = Clone Suspect &nbsp;·&nbsp; ≥85% = High &nbsp;·&nbsp; ≥70% = Same Family
+          <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-subtle">
+            <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-danger" />≥95% Clone Suspect</span>
+            <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-warning" />≥85% High</span>
+            <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-info" />≥70% Same Family</span>
+            <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-success" />Distinct</span>
           </p>
         </div>
 
         {/* Activity feed */}
-        <div className="lg:col-span-2 rounded-md border border-white/6 bg-white/[0.02] p-4 sm:p-5">
+        <div className="surface-card hairline-top lg:col-span-2 p-4 sm:p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[14px] font-[590] text-text-primary" style={{ letterSpacing: "-0.182px" }}>
               Recent Jobs
@@ -489,16 +492,19 @@ export default function DashboardPage() {
                 <button
                   key={job.job_id}
                   onClick={() => setSelectedJob(job)}
-                  className="w-full flex items-center justify-between rounded border border-white/4 bg-white/[0.015] px-3 py-2.5 transition-all duration-150 hover:bg-white/[0.035] hover:border-white/8 text-left animate-fade-in"
+                  className="group/job w-full flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.015] px-3 py-2.5 transition-all duration-150 hover:bg-white/[0.04] hover:border-white/[0.10] hover:shadow-elevation-low text-left animate-fade-in"
                   style={{ animationDelay: `${i * 40}ms` }}
                 >
-                  <div className="min-w-0 pr-2">
-                    <p className="truncate text-[13px] font-[510] text-text-secondary">
-                      {job.model_name ?? "Unknown"}
-                    </p>
-                    <p className="text-[11px] text-text-subtle font-mono">
-                      {job.job_id?.slice(0, 8)}…
-                    </p>
+                  <div className="min-w-0 pr-2 flex items-center gap-2.5">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/50 transition-colors group-hover/job:bg-accent-bright" />
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-[510] text-text-secondary group-hover/job:text-text-primary transition-colors">
+                        {job.model_name ?? "Unknown"}
+                      </p>
+                      <p className="text-[11px] text-text-subtle font-mono">
+                        {job.job_id?.slice(0, 8)}…
+                      </p>
+                    </div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     {statusBadge(job.status)}

@@ -46,8 +46,20 @@ const config: Config = {
         DEFAULT:"6px",
         md:    "8px",
         lg:    "12px",
-        xl:    "22px",
+        xl:    "16px",
+        "2xl": "22px",
         full:  "9999px",
+      },
+      boxShadow: {
+        "elevation-low":  "0 1px 2px 0 rgba(0,0,0,0.4), 0 1px 0 0 rgba(255,255,255,0.04) inset",
+        "elevation-md":   "0 1px 2px 0 rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5), 0 1px 0 0 rgba(255,255,255,0.04) inset",
+        "elevation-high": "0 2px 4px 0 rgba(0,0,0,0.5), 0 16px 48px -16px rgba(0,0,0,0.6), 0 1px 0 0 rgba(255,255,255,0.05) inset",
+        "glow-accent":    "0 0 0 1px rgba(94,106,210,0.4), 0 8px 28px -8px rgba(94,106,210,0.45)",
+        "glow-accent-sm": "0 0 20px -6px rgba(113,112,255,0.5)",
+      },
+      backgroundImage: {
+        "accent-gradient":  "linear-gradient(135deg, #7170ff 0%, #5e6ad2 100%)",
+        "panel-gradient":   "linear-gradient(to bottom, rgba(255,255,255,0.035), rgba(255,255,255,0.01))",
       },
       keyframes: {
         "fade-in": {
@@ -66,12 +78,17 @@ const config: Config = {
           "0%":   { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition:  "200% 0" },
         },
+        "glow-pulse": {
+          "0%, 100%": { opacity: "0.5" },
+          "50%":      { opacity: "1" },
+        },
       },
       animation: {
         "fade-in":        "fade-in 0.3s ease forwards",
         "slide-in-right": "slide-in-right 0.3s ease forwards",
         "pulse-dot":      "pulse-dot 1.5s ease-in-out infinite",
         shimmer:          "shimmer 2s linear infinite",
+        "glow-pulse":     "glow-pulse 3s ease-in-out infinite",
       },
     },
   },
