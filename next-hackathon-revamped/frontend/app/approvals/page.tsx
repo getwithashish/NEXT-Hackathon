@@ -198,7 +198,7 @@ export default function ApprovalsPage() {
         subtitle="Providers discovered by the crawler — approve with an API key to start fingerprinting"
         icon={Clock}
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Auto-refresh toggle */}
             <label className="flex cursor-pointer items-center gap-2 text-[12px] text-text-muted select-none">
               <div
@@ -231,7 +231,7 @@ export default function ApprovalsPage() {
       />
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : providers.length === 0 ? (
@@ -243,7 +243,7 @@ export default function ApprovalsPage() {
           />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {providers.map((p) => (
             <ApprovalCard key={p.id} provider={p} onDecide={handleDecide} />
           ))}

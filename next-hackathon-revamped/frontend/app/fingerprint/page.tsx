@@ -101,10 +101,10 @@ export default function FingerprintPage() {
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {/* Form — 3 cols */}
+        {/* Form — full width on mobile, 3 cols on lg */}
         <form
           onSubmit={handleSubmit}
-          className="lg:col-span-3 rounded-md border border-white/8 bg-white/[0.02] p-6 space-y-5"
+          className="lg:col-span-3 rounded-md border border-white/8 bg-white/[0.02] p-4 sm:p-6 space-y-5"
         >
           {/* API Endpoint */}
           <div className="space-y-1.5">

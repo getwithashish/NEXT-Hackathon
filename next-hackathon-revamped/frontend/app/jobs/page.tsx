@@ -28,7 +28,7 @@ function JobDetailSheet({ job, onClose }: { job: any; onClose: () => void }) {
         onClick={onClose}
       />
       {/* Sheet */}
-      <div className="fixed right-0 top-0 z-50 h-full w-full max-w-md border-l border-white/8 bg-bg-panel shadow-2xl animate-slide-in-right flex flex-col">
+      <div className="fixed right-0 top-0 z-50 h-full w-full sm:max-w-md border-l border-white/8 bg-bg-panel shadow-2xl animate-slide-in-right flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
           <h2 className="text-[14px] font-[590] text-text-primary">Job Details</h2>
@@ -206,8 +206,8 @@ export default function JobsPage() {
       />
 
       {/* Filters */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-48">
+      <div className="mb-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-3">
+        <div className="relative flex-1 min-w-0 sm:min-w-48">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtle" />
           <input
             value={search}
@@ -216,7 +216,7 @@ export default function JobsPage() {
             className="w-full rounded border border-white/8 bg-white/[0.02] pl-9 pr-3 py-2 text-[13px] text-text-primary placeholder-text-subtle focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/10"
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {statuses.map((s) => (
             <button
               key={s}
@@ -234,84 +234,86 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table — horizontally scrollable on mobile */}
       <div className="overflow-hidden rounded-md border border-white/8">
-        <table className="w-full text-left text-[13px]">
-          <thead className="border-b border-white/8 bg-white/[0.02]">
-            <tr>
-              {([
-                ["model_name",      "Model"],
-                ["status",          "Status"],
-                ["similarity_score","Similarity"],
-                ["created_at",      "Date"],
-              ] as [SortKey, string][]).map(([key, label]) => (
-                <th
-                  key={key}
-                  className="cursor-pointer px-4 py-2.5 text-[11px] font-[510] uppercase tracking-wider text-text-subtle hover:text-text-muted transition-colors"
-                  onClick={() => toggleSort(key)}
-                >
-                  <span className="flex items-center gap-1.5">{label} <SortIcon col={key} /></span>
-                </th>
-              ))}
-              <th className="px-4 py-2.5 text-[11px] font-[510] uppercase tracking-wider text-text-subtle">Type</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {loading && Array.from({ length: 5 }).map((_, i) => (
-              <tr key={i}>
-                <td className="px-4 py-3"><Skeleton className="h-4 w-36" /></td>
-                <td className="px-4 py-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
-                <td className="px-4 py-3"><Skeleton className="h-3 w-24" /></td>
-                <td className="px-4 py-3"><Skeleton className="h-3 w-28" /></td>
-                <td className="px-4 py-3"><Skeleton className="h-5 w-14 rounded-full" /></td>
-              </tr>
-            ))}
-
-            {!loading && filtered.length === 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-[13px]">
+            <thead className="border-b border-white/8 bg-white/[0.02]">
               <tr>
-                <td colSpan={5}>
-                  <EmptyState
-                    icon={ClipboardList}
-                    title="No jobs found"
-                    description={search ? "Try a different search term" : "Submit a model to get started"}
-                    className="py-12"
-                  />
-                </td>
+                {([
+                  ["model_name",       "Model"],
+                  ["status",           "Status"],
+                  ["similarity_score", "Similarity"],
+                  ["created_at",       "Date"],
+                ] as [SortKey, string][]).map(([key, label]) => (
+                  <th
+                    key={key}
+                    className="cursor-pointer px-4 py-2.5 text-[11px] font-[510] uppercase tracking-wider text-text-subtle hover:text-text-muted transition-colors"
+                    onClick={() => toggleSort(key)}
+                  >
+                    <span className="flex items-center gap-1.5">{label} <SortIcon col={key} /></span>
+                  </th>
+                ))}
+                <th className="hidden sm:table-cell px-4 py-2.5 text-[11px] font-[510] uppercase tracking-wider text-text-subtle">Type</th>
               </tr>
-            )}
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {loading && Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i}>
+                  <td className="px-4 py-3"><Skeleton className="h-4 w-36" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-3 w-24" /></td>
+                  <td className="px-4 py-3"><Skeleton className="h-3 w-28" /></td>
+                  <td className="hidden sm:table-cell px-4 py-3"><Skeleton className="h-5 w-14 rounded-full" /></td>
+                </tr>
+              ))}
 
-            {!loading && filtered.map((job, i) => (
-              <tr
-                key={job.job_id}
-                onClick={() => setSelected(job)}
-                className="cursor-pointer transition-colors hover:bg-white/[0.025] animate-fade-in"
-                style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
-              >
-                <td className="px-4 py-3">
-                  <div className="font-[510] text-text-secondary">
-                    {job.model_name ?? job.provider_name ?? "Unknown"}
-                  </div>
-                  <div className="mt-0.5 font-mono text-[11px] text-text-subtle">
-                    {job.job_id?.slice(0, 10)}…
-                  </div>
-                </td>
-                <td className="px-4 py-3">{statusBadge(job.status)}</td>
-                <td className="px-4 py-3">
-                  {job.similarity_score != null
-                    ? <SimilarityMeter value={job.similarity_score} showLabel={false} />
-                    : <span className="text-text-subtle">—</span>
-                  }
-                </td>
-                <td className="px-4 py-3 text-text-muted whitespace-nowrap">
-                  {fmt(job.created_at)}
-                </td>
-                <td className="px-4 py-3">
-                  {job.type ? <Badge variant="muted">{job.type}</Badge> : <span className="text-text-subtle">—</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={5}>
+                    <EmptyState
+                      icon={ClipboardList}
+                      title="No jobs found"
+                      description={search ? "Try a different search term" : "Submit a model to get started"}
+                      className="py-12"
+                    />
+                  </td>
+                </tr>
+              )}
+
+              {!loading && filtered.map((job, i) => (
+                <tr
+                  key={job.job_id}
+                  onClick={() => setSelected(job)}
+                  className="cursor-pointer transition-colors hover:bg-white/[0.025] animate-fade-in"
+                  style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-[510] text-text-secondary">
+                      {job.model_name ?? job.provider_name ?? "Unknown"}
+                    </div>
+                    <div className="mt-0.5 font-mono text-[11px] text-text-subtle">
+                      {job.job_id?.slice(0, 10)}…
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">{statusBadge(job.status)}</td>
+                  <td className="px-4 py-3">
+                    {job.similarity_score != null
+                      ? <SimilarityMeter value={job.similarity_score} showLabel={false} />
+                      : <span className="text-text-subtle">—</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3 text-text-muted whitespace-nowrap">
+                    {fmt(job.created_at)}
+                  </td>
+                  <td className="hidden sm:table-cell px-4 py-3">
+                    {job.type ? <Badge variant="muted">{job.type}</Badge> : <span className="text-text-subtle">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Side drawer */}

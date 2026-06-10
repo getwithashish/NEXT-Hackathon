@@ -36,7 +36,7 @@ export default async function DashboardPage() {
   const recent = jobs.slice(0, 6);
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8 animate-fade-in">
+    <div className="animate-fade-in">
       <PageHeader
         title="Dashboard"
         icon={Fingerprint}
@@ -44,15 +44,15 @@ export default async function DashboardPage() {
         action={
           <Link
             href="/fingerprint"
-            className="rounded bg-accent px-4 py-2 text-[13px] font-[510] text-white hover:bg-accent-hover transition-colors"
+            className="rounded bg-accent px-3 py-1.5 text-[13px] font-[510] text-white hover:bg-accent-hover transition-colors whitespace-nowrap"
           >
             + Fingerprint a Model
           </Link>
         }
       />
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 mb-8">
+      {/* Stats row — 2 cols on mobile, 4 on desktop */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 mb-6 sm:mb-8">
         <StatCard label="Models Fingerprinted" value={total} icon={Fingerprint} accent />
         <StatCard label="Unique Providers" value={providers} icon={Layers} />
         <StatCard
@@ -69,11 +69,11 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Charts + activity */}
+      {/* Charts + activity — stacked on mobile, 5-col grid on large */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        {/* Similarity chart — 3 cols */}
-        <div className="lg:col-span-3 rounded-md border border-white/8 bg-white/[0.02] p-5">
-          <div className="mb-4 flex items-center justify-between">
+        {/* Similarity chart */}
+        <div className="lg:col-span-3 rounded-md border border-white/8 bg-white/[0.02] p-4 sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-[14px] font-[590] text-text-primary" style={{ letterSpacing: "-0.182px" }}>
               Similarity Scores
             </h2>
@@ -85,19 +85,26 @@ export default async function DashboardPage() {
           </p>
         </div>
 
-        {/* Activity feed — 2 cols */}
-        <div className="lg:col-span-2 rounded-md border border-white/8 bg-white/[0.02] p-5">
+        {/* Activity feed */}
+        <div className="lg:col-span-2 rounded-md border border-white/8 bg-white/[0.02] p-4 sm:p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[14px] font-[590] text-text-primary" style={{ letterSpacing: "-0.182px" }}>
               Recent Jobs
             </h2>
-            <Link href="/jobs" className="flex items-center gap-1 text-[12px] text-text-muted hover:text-text-secondary transition-colors">
+            <Link
+              href="/jobs"
+              className="flex items-center gap-1 text-[12px] text-text-muted hover:text-text-secondary transition-colors"
+            >
               View all <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
 
           {recent.length === 0 ? (
-            <EmptyState title="No jobs yet" description="Submit a model to start fingerprinting" icon={Fingerprint} />
+            <EmptyState
+              title="No jobs yet"
+              description="Submit a model to start fingerprinting"
+              icon={Fingerprint}
+            />
           ) : (
             <div className="space-y-2">
               {recent.map((job: any, i: number) => (
@@ -106,7 +113,7 @@ export default async function DashboardPage() {
                   className="flex items-center justify-between rounded border border-white/5 bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04] animate-fade-in"
                   style={{ animationDelay: `${i * 50}ms` }}
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 pr-2">
                     <p className="truncate text-[13px] font-[510] text-text-secondary">
                       {job.model_name ?? job.provider_name ?? "Unknown"}
                     </p>
@@ -125,7 +132,6 @@ export default async function DashboardPage() {
             </div>
           )}
 
-          {/* Pending approvals CTA */}
           {pendingCount > 0 && (
             <Link
               href="/approvals"
@@ -140,6 +146,6 @@ export default async function DashboardPage() {
           )}
         </div>
       </div>
-    </main>
+    </div>
   );
 }
