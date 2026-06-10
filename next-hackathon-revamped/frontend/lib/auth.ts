@@ -1,14 +1,13 @@
 import { betterAuth } from "better-auth";
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 
-// Required for Neon serverless WebSocket transport
-neonConfig.webSocketConstructor = ws;
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql);
 
 export const auth = betterAuth({
-  database: new Pool({
-    connectionString: process.env.DATABASE_URL!,
-  }),
+  baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+  database: db,
   socialProviders: {
     github: {
       clientId: process.env.GITHUB_CLIENT_ID!,
