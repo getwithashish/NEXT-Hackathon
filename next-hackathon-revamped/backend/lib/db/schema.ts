@@ -81,6 +81,20 @@ export const fingerprints = pgTable("fingerprints", {
   completed_at:     timestamp("completed_at", { withTimezone: true }),
 });
 
+// ── Fingerprint similarities ──────────────────────────────────────────────────
+// Pairwise cosine similarity between every two fingerprints.
+// Populated whenever a new fingerprint is added (compare against all existing).
+// Both (a→b) and (b→a) rows are written so queries only need WHERE fp_a = $id.
+
+export const fingerprint_similarities = pgTable("fingerprint_similarities", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  fp_a:            text("fp_a").notNull(),   // job_id of fingerprint A
+  fp_b:            text("fp_b").notNull(),   // job_id of fingerprint B
+  score:           real("score").notNull(),  // cosine similarity [0,1]
+  verdict:         text("verdict"),          // clone_suspect|high_similarity|same_family|unknown
+  created_at:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Known models ──────────────────────────────────────────────────────────────
 
 export const known_models = pgTable("known_models", {

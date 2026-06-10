@@ -55,3 +55,19 @@ export async function getJobs(limit = 20) {
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<{ jobs: any[] }>;
 }
+
+export interface SimilarFingerprint {
+  job_id: string;
+  model_name: string | null;
+  provider_name: string | null;
+  similarity_score: number;
+  verdict: string | null;
+  source: string | null;
+  completed_at: string | null;
+}
+
+export async function getSimilarFingerprints(jobId: string) {
+  const res = await fetch(`${API_URL}/api/fingerprint/${jobId}/similar`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<{ job_id: string; similar: SimilarFingerprint[] }>;
+}

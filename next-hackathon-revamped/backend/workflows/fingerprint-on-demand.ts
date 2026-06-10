@@ -1,16 +1,17 @@
 /**
- * workflows/fingerprint-on-demand.ts  (v1.1)
+ * workflows/fingerprint-on-demand.ts  (v1.2)
  *
- * 6-step pipeline (up from 5):
+ * 7-step pipeline:
  *   1. resolve-template      — validate endpoint / extract RequestTemplate via Exa+Claude
  *   2. fingerprint-batch-0   — send discriminative prompts 1–5, record responses + latency
  *   3. fingerprint-batch-1   — prompts 6–10
  *   4. fingerprint-batch-2   — prompts 11–15
- *   5. embed-responses        ← NEW — call Bedrock Titan Embeddings v2 on all 15 responses
- *   6. compare-and-persist   — two-phase cosine comparison + DB write
+ *   5. embed-responses       — call Bedrock Titan Embeddings v2 on all 15 responses
+ *   6. compare-and-persist   — two-phase cosine vs known_models + DB write
+ *   7. pairwise-similarities — compare against ALL fingerprints in DB → fingerprint_similarities
  *
- * Each step emits a step_completed event to the Vercel Workflow readable stream,
- * giving the frontend 6 real progress checkpoints.
+ * Step 7 is what enables "Similar Models" — every new fingerprint is cross-compared
+ * against every existing one (user-submitted AND crawler-generated).
  */
 
 import {
@@ -20,6 +21,7 @@ import {
   computeBehaviorHash,
   embedResponses,
   compareFingerprintEmbeddings,
+  compareAgainstAllFingerprints,
   type RequestTemplate,
 } from "../lib/agents/index";
 import { db, fingerprints } from "../lib/db/index";
@@ -72,8 +74,6 @@ async function stepFingerprintBatch2(
 }
 
 // ── Step 5: embed all 15 responses ────────────────────────────────────────────
-// Calls Bedrock Titan Embeddings v2 sequentially on each response.
-// Returns { embedding_vectors: number[][], mean_vector: number[] }
 
 async function stepEmbedResponses(
   batch0: Awaited<ReturnType<typeof fingerprintBatch>>,
@@ -84,7 +84,7 @@ async function stepEmbedResponses(
   return await embedResponses([batch0, batch1, batch2]);
 }
 
-// ── Step 6: compare + persist ─────────────────────────────────────────────────
+// ── Step 6: compare vs known_models + persist ─────────────────────────────────
 
 async function stepCompareAndPersist(
   jobId: string,
@@ -105,12 +105,12 @@ async function stepCompareAndPersist(
   // SHA-256 fast path (exact match)
   const behaviorHash = computeBehaviorHash([batch0, batch1, batch2]);
 
-  // Two-phase embedding comparison
+  // Two-phase embedding comparison vs known_models reference set
   const { embedding_vectors, mean_vector } = embeddingResult;
   const { similar_models, verdict, similarity_score, matched_model } =
     await compareFingerprintEmbeddings(embedding_vectors, mean_vector, behaviorHash);
 
-  // Persist everything to DB
+  // Persist everything to DB — mark status=done so step 7 can find it
   await db
     .update(fingerprints)
     .set({
@@ -143,7 +143,23 @@ async function stepCompareAndPersist(
     verdict,
     similarity_score,
     matched_model,
+    embedding_vectors,
+    mean_vector,
   };
+}
+
+// ── Step 7: pairwise cross-comparison against all existing fingerprints ────────
+// Runs AFTER step 6 has written status=done so this fingerprint is excluded
+// from its own comparison. Writes both directions to fingerprint_similarities.
+
+async function stepPairwiseSimilarities(
+  jobId: string,
+  embedding_vectors: number[][],
+  mean_vector: number[]
+) {
+  "use step";
+  const pairwise = await compareAgainstAllFingerprints(jobId, embedding_vectors, mean_vector);
+  return { pairwise_count: pairwise.length, pairwise };
 }
 
 // ── Main workflow ─────────────────────────────────────────────────────────────
@@ -164,7 +180,6 @@ export async function fingerprintOnDemandWorkflow(
   );
 
   // Normalise: validateTemplate returns {ok,error}, not a RequestTemplate.
-  // If template resolution produced a valid RequestTemplate use it; otherwise null.
   const template: RequestTemplate | null =
     templateRaw && "endpoint_url" in templateRaw ? templateRaw : null;
 
@@ -178,5 +193,21 @@ export async function fingerprintOnDemandWorkflow(
     jobId, modelName, batch0, batch1, batch2, embeddingResult
   );
 
-  return { job_id: jobId, model_name: modelName, ...result };
+  // Cross-compare against every other fingerprint in the DB
+  const pairwiseResult = await stepPairwiseSimilarities(
+    jobId,
+    result.embedding_vectors,
+    result.mean_vector
+  );
+
+  return {
+    job_id:          jobId,
+    model_name:      modelName,
+    behavior_hash:   result.behavior_hash,
+    similar_models:  result.similar_models,
+    verdict:         result.verdict,
+    similarity_score: result.similarity_score,
+    matched_model:   result.matched_model,
+    pairwise_count:  pairwiseResult.pairwise_count,
+  };
 }

@@ -9,7 +9,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { CopyButton } from "@/components/CopyButton";
 import { cn } from "@/lib/utils";
-import { getJobs } from "@/lib/api";
+import { getJobs, getSimilarFingerprints, type SimilarFingerprint } from "@/lib/api";
+import { GitCompareArrows } from "lucide-react";
 
 type SortKey = "created_at" | "similarity_score" | "status" | "model_name";
 type SortDir = "asc" | "desc";
@@ -18,6 +19,99 @@ function fmt(dateStr: string) {
   const d = new Date(dateStr);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
+
+// ── Similar Models panel (fetched from /api/fingerprint/:jobId/similar) ───────
+
+function SimilarModelsPanel({ jobId, isDone }: { jobId: string; isDone: boolean }) {
+  const [similar, setSimilar]   = useState<SimilarFingerprint[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [error,   setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isDone) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getSimilarFingerprints(jobId)
+      .then((data) => { if (!cancelled) setSimilar(data.similar ?? []); })
+      .catch((e)   => { if (!cancelled) setError(e.message ?? "Failed to load"); })
+      .finally(()  => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [jobId, isDone]);
+
+  if (!isDone) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <GitCompareArrows className="h-3.5 w-3.5 text-accent-bright" />
+        <p className="text-[12px] font-[510] text-text-secondary">Similar Models in Database</p>
+        {!loading && similar.length > 0 && (
+          <span className="ml-auto text-[11px] text-text-subtle">{similar.length} found</span>
+        )}
+      </div>
+
+      {loading && (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-md border border-white/5 bg-white/[0.02] p-2.5">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-3 w-16 ml-auto" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && error && (
+        <p className="text-[12px] text-danger/80 font-mono">{error}</p>
+      )}
+
+      {!loading && !error && similar.length === 0 && (
+        <div className="rounded-md border border-white/5 bg-white/[0.02] p-3 text-center">
+          <p className="text-[12px] text-text-subtle">No similar fingerprints found in database</p>
+          <p className="text-[11px] text-text-muted mt-0.5">This model appears behaviorally distinct</p>
+        </div>
+      )}
+
+      {!loading && !error && similar.length > 0 && (
+        <div className="space-y-2">
+          {similar.map((s, i) => (
+            <div
+              key={s.job_id}
+              className="flex items-center gap-3 rounded-md border border-white/5 bg-white/[0.02] p-2.5 animate-fade-in"
+              style={{ animationDelay: `${i * 40}ms` }}
+            >
+              {/* Rank badge */}
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/5 text-[10px] font-[510] text-text-subtle">
+                {i + 1}
+              </span>
+
+              {/* Model info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-[510] text-text-secondary truncate">
+                  {s.model_name ?? s.provider_name ?? "Unknown"}
+                </p>
+                <p className="text-[10px] text-text-subtle font-mono truncate">{s.job_id.slice(0, 12)}…</p>
+              </div>
+
+              {/* Similarity meter */}
+              <div className="shrink-0">
+                <SimilarityMeter value={s.similarity_score} showLabel={false} />
+              </div>
+
+              {/* Source badge */}
+              {s.source && (
+                <Badge variant="muted" className="shrink-0 text-[10px]">{s.source}</Badge>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Job detail drawer ─────────────────────────────────────────────────────────
 
 function JobDetailSheet({ job, onClose }: { job: any; onClose: () => void }) {
   return (
@@ -81,7 +175,7 @@ function JobDetailSheet({ job, onClose }: { job: any; onClose: () => void }) {
             </div>
           </div>
 
-          {/* Similarity */}
+          {/* Similarity vs known models */}
           {job.similarity_score != null && (
             <div className="space-y-2">
               <p className="text-[12px] font-[510] text-text-secondary">Similarity Score</p>
@@ -105,6 +199,13 @@ function JobDetailSheet({ job, onClose }: { job: any; onClose: () => void }) {
             <div className="rounded border border-warning/15 bg-warning/5 p-3">
               <p className="text-[11px] text-text-subtle mb-1">Most similar to</p>
               <p className="text-[14px] font-[590] text-warning">{job.matched_model}</p>
+            </div>
+          )}
+
+          {/* Similar models from pairwise DB ── only shown when job is done */}
+          {job.status === "done" && (
+            <div className="rounded-md border border-white/8 bg-white/[0.015] p-3">
+              <SimilarModelsPanel jobId={job.job_id} isDone={job.status === "done"} />
             </div>
           )}
 

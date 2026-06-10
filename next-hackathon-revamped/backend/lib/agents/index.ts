@@ -375,6 +375,118 @@ export async function compareFingerprintEmbeddings(
   };
 }
 
+// ── compareAgainstAllFingerprints (v1.2) ──────────────────────────────────────
+//
+// After a new fingerprint is stored, call this to:
+//  1. Load every OTHER completed fingerprint from Neon that has embeddings
+//  2. Compute pairwise cosine similarity (two-phase: mean pre-filter → per-prompt)
+//  3. Upsert rows into fingerprint_similarities (both directions: a→b and b→a)
+//
+// Returns the top matches above the "same_family" threshold (score >= 0.70).
+
+export interface PairwiseSimilarity {
+  job_id:  string;       // the other fingerprint's job_id
+  name:    string;       // model_name of the other fingerprint
+  source:  string;       // "user" | "crawler" | "on_demand"
+  score:   number;       // cosine similarity [0,1]
+  verdict: string;       // clone_suspect | high_similarity | same_family | unknown
+}
+
+export async function compareAgainstAllFingerprints(
+  thisJobId:      string,
+  unknownVectors: number[][],   // 15 × 1024
+  unknownMeanVec: number[],     // 1024
+): Promise<PairwiseSimilarity[]> {
+  let allRows: any[] = [];
+  let sqlFn: any;
+
+  try {
+    const dbMod = await import("../db/index.js");
+    const { db, fingerprints, getRawSql } = dbMod as any;
+    sqlFn = getRawSql();
+
+    // Load all OTHER completed fingerprints that have embeddings
+    allRows = await db
+      .select()
+      .from(fingerprints)
+      .then((rows: any[]) =>
+        rows.filter(
+          (r: any) =>
+            r.job_id !== thisJobId &&
+            r.status === "done" &&
+            Array.isArray(r.mean_vector) &&
+            r.mean_vector.length > 0
+        )
+      );
+  } catch (err) {
+    console.warn("compareAgainstAllFingerprints: DB query failed:", err);
+    return [];
+  }
+
+  if (allRows.length === 0) return [];
+
+  // ── Phase 1: mean-vector pre-filter (keep top 10) ─────────────────────────
+  const withMeanSim = allRows
+    .map((row: any) => ({
+      row,
+      meanSim: cosineSim(unknownMeanVec, row.mean_vector as number[]),
+    }))
+    .sort((a: any, b: any) => b.meanSim - a.meanSim)
+    .slice(0, 10);
+
+  // ── Phase 2: per-prompt pairwise cosine on top 10 ─────────────────────────
+  const results: PairwiseSimilarity[] = [];
+
+  for (const { row, meanSim } of withMeanSim) {
+    const kmVecs = row.embedding_vectors as number[][] | null;
+
+    let score: number;
+    if (kmVecs && Array.isArray(kmVecs) && kmVecs.length === unknownVectors.length) {
+      const perPrompt = unknownVectors.map((v, i) => cosineSim(v, kmVecs[i]));
+      score = perPrompt.reduce((a, b) => a + b, 0) / perPrompt.length;
+    } else {
+      score = meanSim;
+    }
+
+    const verdict =
+      score >= 0.95 ? "clone_suspect"  :
+      score >= 0.85 ? "high_similarity" :
+      score >= 0.70 ? "same_family"    : "unknown";
+
+    results.push({
+      job_id:  row.job_id,
+      name:    row.model_name ?? row.job_id,
+      source:  row.source ?? "unknown",
+      score,
+      verdict,
+    });
+  }
+
+  // ── Persist to fingerprint_similarities ───────────────────────────────────
+  try {
+    for (const r of results) {
+      // Both directions so either side can query with WHERE fp_a = $id
+      await sqlFn`
+        INSERT INTO fingerprint_similarities (fp_a, fp_b, score, verdict)
+        VALUES (${thisJobId}, ${r.job_id}, ${r.score}, ${r.verdict})
+        ON CONFLICT (fp_a, fp_b) DO UPDATE SET score = EXCLUDED.score, verdict = EXCLUDED.verdict
+      `;
+      await sqlFn`
+        INSERT INTO fingerprint_similarities (fp_a, fp_b, score, verdict)
+        VALUES (${r.job_id}, ${thisJobId}, ${r.score}, ${r.verdict})
+        ON CONFLICT (fp_a, fp_b) DO UPDATE SET score = EXCLUDED.score, verdict = EXCLUDED.verdict
+      `;
+    }
+  } catch (err) {
+    console.warn("compareAgainstAllFingerprints: failed to persist similarities:", err);
+  }
+
+  // Return only meaningful similarities (above same_family threshold)
+  return results
+    .filter((r) => r.score >= 0.70)
+    .sort((a, b) => b.score - a.score);
+}
+
 // ── DocReaderAgent ─────────────────────────────────────────────────────────────
 
 const DOC_EXTRACTION_PROMPT = `You are an API integration specialist. I will give you documentation text for an AI model provider.

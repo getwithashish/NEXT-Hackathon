@@ -106,6 +106,21 @@ export default defineEventHandler(async () => {
     await sql`ALTER TABLE known_models ADD COLUMN IF NOT EXISTS embedding_vectors JSONB`;
     await sql`ALTER TABLE known_models ADD COLUMN IF NOT EXISTS mean_vector        JSONB`;
 
+    /* v1.2 — fingerprint_similarities table */
+    await sql`
+      CREATE TABLE IF NOT EXISTS fingerprint_similarities (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        fp_a        TEXT NOT NULL,
+        fp_b        TEXT NOT NULL,
+        score       REAL NOT NULL,
+        verdict     TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (fp_a, fp_b)
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_fp_sim_a ON fingerprint_similarities(fp_a)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_fp_sim_b ON fingerprint_similarities(fp_b)`;
+
     // ── Seed known_models if empty ─────────────────────────────────────────
     const [{ value: existingCount }] = await db
       .select({ value: count() })
