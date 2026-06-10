@@ -3,7 +3,7 @@
  * Returns recent fingerprint jobs (both on-demand and crawler).
  */
 import { defineEventHandler, setHeader, getQuery } from "h3";
-import { db, fingerprints } from "../../../lib/db/index.js";
+import { db, fingerprints } from "../../../lib/db/index";
 import { desc } from "drizzle-orm";
 
 export default defineEventHandler(async (event) => {

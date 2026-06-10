@@ -19,7 +19,7 @@
  */
 
 import { createHook } from "workflow";
-import { db, providers } from "../lib/db/index.js";
+import { db, providers } from "../lib/db/index";
 import { eq } from "drizzle-orm";
 
 // ── Step 1 ────────────────────────────────────────────────────────────────────

@@ -1,18 +1,35 @@
-/**
- * db/index.ts — Neon Postgres connection via the serverless HTTP driver.
- *
- * Uses @neondatabase/serverless instead of node-postgres (pg) so that
- * Vercel serverless functions don't hold TCP connections open — fixes the
- * connection pool exhaustion problem.
- *
- * DATABASE_URL must be set in Vercel env vars (and .env for local dev).
- */
-
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import * as schema from "./schema.js";
+import * as schema from "./schema";
 
-const sql = neon(process.env.DATABASE_URL!);
-export const db = drizzle(sql, { schema });
+// Lazy singleton — initialized on first use so module load never crashes
+let _db: ReturnType<typeof drizzle> | null = null;
+let _rawSql: ReturnType<typeof neon> | null = null;
 
-export * from "./schema.js";
+function init() {
+  if (!_db) {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error("DATABASE_URL is not set");
+    _rawSql = neon(url);
+    _db = drizzle(_rawSql, { schema });
+  }
+}
+
+export function getDb() {
+  init();
+  return _db!;
+}
+
+export function getRawSql() {
+  init();
+  return _rawSql!;
+}
+
+// Proxy so `import { db }` still works without calling getDb() at module load
+export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
+  get(_t, prop) {
+    return (getDb() as any)[prop];
+  }
+});
+
+export * from "./schema";

@@ -21,8 +21,8 @@ import {
   fingerprintBatch,
   compareFingerprintHash,
   type RequestTemplate,
-} from "../lib/agents/index.js";
-import { db, fingerprints, models, providers } from "../lib/db/index.js";
+} from "../lib/agents/index";
+import { db, fingerprints, models, providers } from "../lib/db/index";
 import { eq } from "drizzle-orm";
 import crypto from "node:crypto";
 

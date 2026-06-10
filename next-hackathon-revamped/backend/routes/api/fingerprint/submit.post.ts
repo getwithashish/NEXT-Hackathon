@@ -5,8 +5,8 @@
  */
 import { defineEventHandler, readBody, setHeader } from "h3";
 import { start } from "workflow/api";
-import { fingerprintOnDemandWorkflow } from "../../../workflows/fingerprint-on-demand.js";
-import { db, fingerprints } from "../../../lib/db/index.js";
+import { fingerprintOnDemandWorkflow } from "../../../workflows/fingerprint-on-demand";
+import { db, fingerprints } from "../../../lib/db/index";
 import crypto from "node:crypto";
 
 export default defineEventHandler(async (event) => {

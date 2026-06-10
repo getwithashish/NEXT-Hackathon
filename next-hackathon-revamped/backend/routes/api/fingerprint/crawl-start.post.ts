@@ -5,8 +5,8 @@
  */
 import { defineEventHandler, readBody, setHeader } from "h3";
 import { start } from "workflow/api";
-import { crawlFingerprintWorkflow } from "../../../workflows/crawl-fingerprint.js";
-import { db, fingerprints, models, providers } from "../../../lib/db/index.js";
+import { crawlFingerprintWorkflow } from "../../../workflows/crawl-fingerprint";
+import { db, fingerprints, models, providers } from "../../../lib/db/index";
 import { eq } from "drizzle-orm";
 import crypto from "node:crypto";
 

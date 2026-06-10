@@ -7,8 +7,8 @@
  */
 import { defineEventHandler, readBody, setHeader } from "h3";
 import { start } from "workflow/api";
-import { paymentApprovalWorkflow } from "../../../workflows/payment-approval.js";
-import { db, providers } from "../../../lib/db/index.js";
+import { paymentApprovalWorkflow } from "../../../workflows/payment-approval";
+import { db, providers } from "../../../lib/db/index";
 import { eq } from "drizzle-orm";
 
 export default defineEventHandler(async (event) => {

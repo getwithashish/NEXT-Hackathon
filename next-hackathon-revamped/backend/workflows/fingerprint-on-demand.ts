@@ -22,8 +22,8 @@ import {
   compareFingerprintHash,
   type RequestTemplate,
   type FingerprintResult,
-} from "../lib/agents/index.js";
-import { db, fingerprints } from "../lib/db/index.js";
+} from "../lib/agents/index";
+import { db, fingerprints } from "../lib/db/index";
 import { eq } from "drizzle-orm";
 
 // ── Step 1: resolve template ──────────────────────────────────────────────────
