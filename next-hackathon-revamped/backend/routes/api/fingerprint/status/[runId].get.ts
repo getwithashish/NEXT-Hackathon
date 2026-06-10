@@ -12,7 +12,7 @@
  *   { run_id, status, step_events, result? }
  */
 import { defineEventHandler, setHeader, getRouterParam } from "h3";
-import { getRawSql } from "../../../lib/db/index";
+import { getRawSql } from "../../../../lib/db/index";
 
 export default defineEventHandler(async (event) => {
   setHeader(event, "Access-Control-Allow-Origin", "*");
