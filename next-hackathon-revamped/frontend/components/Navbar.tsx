@@ -30,7 +30,7 @@ export function Navbar() {
           >
             <Fingerprint className="h-5 w-5 text-accent-bright" />
             <span className="text-sm font-[510] tracking-tight text-text-primary">
-              ModelScope
+              llmHash
             </span>
           </Link>
 

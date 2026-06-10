@@ -3,7 +3,7 @@ import { Navbar } from "@/components/Navbar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ModelScope — LLM Fingerprint Verifier",
+  title: "llmHash — LLM Fingerprint Verifier",
   description: "Detect cloned or distilled LLMs via behavioral fingerprinting",
   viewport: "width=device-width, initial-scale=1",
 };
