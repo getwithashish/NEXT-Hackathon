@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Force no-store on all routes — prevents Next.js edge/CDN caching
   async headers() {
     return [
       {
@@ -17,7 +16,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "lh3.googleusercontent.com", // Google profile pictures
+        hostname: "avatars.githubusercontent.com", // GitHub profile pictures
       },
     ],
   },
