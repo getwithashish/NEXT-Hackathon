@@ -1,13 +1,16 @@
 import { betterAuth } from "better-auth";
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import postgres from "postgres";
 
-const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql);
+// postgres.js works natively on Vercel Node.js serverless (no native bindings)
+const client = postgres(process.env.DATABASE_URL!);
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL,
-  database: db,
+  database: {
+    // Better Auth accepts a query function directly
+    type: "pg",
+    db: client,
+  },
   socialProviders: {
     github: {
       clientId: process.env.GITHUB_CLIENT_ID!,
