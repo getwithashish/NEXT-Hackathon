@@ -15,7 +15,7 @@ export function StatCard({ label, value, icon: Icon, delta, deltaUp, accent, cla
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-md border border-white/8 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]",
+        "relative overflow-hidden rounded-md border border-white/6 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04]",
         className
       )}
     >
@@ -41,7 +41,7 @@ export function StatCard({ label, value, icon: Icon, delta, deltaUp, accent, cla
         </div>
         <div className={cn(
           "flex h-8 w-8 items-center justify-center rounded-md",
-          accent ? "bg-accent/10 border border-accent/20" : "bg-white/5 border border-white/8"
+          accent ? "bg-accent/10 border border-accent/20" : "bg-white/5 border border-white/6"
         )}>
           <Icon className={cn("h-4 w-4", accent ? "text-accent-bright" : "text-text-muted")} />
         </div>

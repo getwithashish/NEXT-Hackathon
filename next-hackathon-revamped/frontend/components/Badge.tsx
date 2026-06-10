@@ -8,7 +8,7 @@ const variants: Record<BadgeVariant, string> = {
   warning: "bg-warning/15 text-warning border-warning/25",
   danger:  "bg-danger/15 text-danger border-danger/25",
   info:    "bg-info/15 text-info border-info/25",
-  muted:   "bg-white/5 text-text-muted border-white/10",
+  muted:   "bg-white/5 text-text-muted border-white/6",
 };
 
 interface BadgeProps {

@@ -71,7 +71,7 @@ export function WorkflowProgress({ runId, jobId, onDone }: WorkflowProgressProps
   }
 
   return (
-    <div className="mt-6 rounded-md border border-white/8 bg-white/[0.02] p-5 animate-fade-in">
+    <div className="mt-6 rounded-md border border-white/6 bg-white/[0.02] p-5 animate-fade-in">
       <h3 className="mb-4 text-[13px] font-[590] text-text-secondary">
         Workflow Running
         <span className="ml-2 font-mono text-[11px] text-text-subtle">run:{runId.slice(5, 13)}</span>

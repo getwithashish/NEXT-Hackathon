@@ -70,7 +70,7 @@ export function Navbar() {
             <button
               onClick={() => setOpen((v) => !v)}
               aria-label="Toggle menu"
-              className="md:hidden flex h-8 w-8 items-center justify-center rounded border border-white/8 text-text-muted hover:bg-white/5 hover:text-text-primary transition-colors"
+              className="md:hidden flex h-8 w-8 items-center justify-center rounded border border-white/6 text-text-muted hover:bg-white/5 hover:text-text-primary transition-colors"
             >
               {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>

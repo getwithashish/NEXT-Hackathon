@@ -16,6 +16,7 @@ import { getRawSql } from "../../../../lib/db/index";
 
 export default defineEventHandler(async (event) => {
   setHeader(event, "Access-Control-Allow-Origin", "*");
+  setHeader(event, "Cache-Control", "no-store");
   const runId = getRouterParam(event, "runId");
   if (!runId) {
     event.node.res.statusCode = 400;

@@ -52,7 +52,7 @@ function ApprovalCard({
         "rounded-md border p-5 flex items-center gap-3 animate-fade-in",
         done === "approved"
           ? "border-success/20 bg-success/5"
-          : "border-white/8 bg-white/[0.02]"
+          : "border-white/6 bg-white/[0.02]"
       )}>
         {done === "approved"
           ? <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
@@ -68,7 +68,7 @@ function ApprovalCard({
   }
 
   return (
-    <div className="rounded-md border border-white/8 bg-white/[0.02] p-5 space-y-4 transition-colors hover:border-white/12">
+    <div className="rounded-md border border-white/6 bg-white/[0.02] p-5 space-y-4 transition-colors hover:border-white/8">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -117,7 +117,7 @@ function ApprovalCard({
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="sk-..."
-            className="w-full rounded border border-white/8 bg-bg-panel px-3 py-2 pr-10 font-mono text-[13px] text-text-primary placeholder-text-subtle focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/10 transition-colors"
+            className="w-full rounded border border-white/6 bg-bg-panel px-3 py-2 pr-10 font-mono text-[13px] text-text-primary placeholder-text-subtle focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/10 transition-colors"
           />
           <button
             type="button"
@@ -152,7 +152,7 @@ function ApprovalCard({
           onClick={() => decide(false)}
           disabled={!!loading}
           className={cn(
-            "rounded border border-white/8 px-4 py-2 text-[13px] font-[510] transition-colors",
+            "rounded border border-white/6 px-4 py-2 text-[13px] font-[510] transition-colors",
             loading === "skip"
               ? "cursor-not-allowed text-text-subtle"
               : "text-text-muted hover:bg-white/5 hover:text-text-secondary"
@@ -205,7 +205,7 @@ export default function ApprovalsPage() {
                 onClick={() => setAutoRefresh((v) => !v)}
                 className={cn(
                   "relative h-5 w-9 rounded-full border transition-colors",
-                  autoRefresh ? "border-accent/30 bg-accent/20" : "border-white/10 bg-white/5"
+                  autoRefresh ? "border-accent/30 bg-accent/20" : "border-white/6 bg-white/5"
                 )}
               >
                 <div className={cn(
@@ -221,7 +221,7 @@ export default function ApprovalsPage() {
             <button
               onClick={load}
               disabled={loading}
-              className="flex items-center gap-1.5 rounded border border-white/8 bg-white/[0.02] px-3 py-1.5 text-[13px] text-text-muted hover:bg-white/[0.04] hover:text-text-secondary transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded border border-white/6 bg-white/[0.02] px-3 py-1.5 text-[13px] text-text-muted hover:bg-white/[0.04] hover:text-text-secondary transition-colors disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               Refresh
@@ -235,7 +235,7 @@ export default function ApprovalsPage() {
           {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : providers.length === 0 ? (
-        <div className="rounded-md border border-white/8 bg-white/[0.02]">
+        <div className="rounded-md border border-white/6 bg-white/[0.02]">
           <EmptyState
             icon={Clock}
             title="No pending approvals"

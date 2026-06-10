@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 
 export default defineEventHandler(async (event) => {
   setHeader(event, "Access-Control-Allow-Origin", "*");
+  setHeader(event, "Cache-Control", "no-store");
 
   const pending = await db
     .select()

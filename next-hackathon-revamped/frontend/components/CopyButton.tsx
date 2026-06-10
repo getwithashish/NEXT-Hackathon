@@ -17,7 +17,7 @@ export function CopyButton({ value, className }: { value: string; className?: st
     <button
       onClick={copy}
       className={cn(
-        "flex h-6 w-6 items-center justify-center rounded border border-white/8 bg-white/[0.02] text-text-muted transition-all hover:bg-white/[0.05] hover:text-text-secondary",
+        "flex h-6 w-6 items-center justify-center rounded border border-white/6 bg-white/[0.02] text-text-muted transition-all hover:bg-white/[0.05] hover:text-text-secondary",
         copied && "border-success/30 bg-success/10 text-success",
         className
       )}
