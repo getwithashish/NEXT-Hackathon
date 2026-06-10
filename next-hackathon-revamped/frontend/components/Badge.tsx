@@ -55,3 +55,16 @@ export function statusBadge(status: string) {
   };
   return <Badge variant={map[status] ?? "muted"} dot>{status}</Badge>;
 }
+
+const verdictLabels: Record<string, { label: string; variant: BadgeVariant }> = {
+  exact_match:     { label: "Exact Match",        variant: "danger" },
+  clone_suspect:   { label: "Clone Suspect",      variant: "danger" },
+  high_similarity: { label: "High Similarity",    variant: "warning" },
+  same_family:     { label: "Same Family",        variant: "info" },
+  unknown:         { label: "Unknown / Original", variant: "success" },
+};
+
+export function verdictBadge(verdict: string) {
+  const meta = verdictLabels[verdict] ?? { label: verdict, variant: "muted" as BadgeVariant };
+  return <Badge variant={meta.variant}>{meta.label}</Badge>;
+}

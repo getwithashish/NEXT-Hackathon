@@ -1,7 +1,10 @@
 /**
  * POST /api/init-db
  * Creates all tables + seeds known_models if they don't exist.
- * Safe to call multiple times (uses CREATE TABLE IF NOT EXISTS).
+ * Safe to call multiple times (CREATE TABLE IF NOT EXISTS + ADD COLUMN IF NOT EXISTS).
+ *
+ * v1.1: adds embedding_vectors, mean_vector, similarity_score, matched_model,
+ *       verdict columns via ALTER TABLE … ADD COLUMN IF NOT EXISTS.
  */
 
 import { defineEventHandler } from "h3";
@@ -73,12 +76,19 @@ export default defineEventHandler(async () => {
         fingerprint_data  JSONB,
         step_events       JSONB DEFAULT '[]',
         status            TEXT NOT NULL DEFAULT 'pending',
+        verdict           TEXT,
         source            TEXT NOT NULL DEFAULT 'on_demand',
         provider_id       UUID REFERENCES providers(id),
         created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         completed_at      TIMESTAMPTZ
       )
     `;
+
+    /* v1.1 — add embedding columns to fingerprints (safe on existing tables) */
+    await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS embedding_vectors JSONB`;
+    await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS mean_vector        JSONB`;
+    await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS similarity_score   REAL`;
+    await sql`ALTER TABLE fingerprints ADD COLUMN IF NOT EXISTS matched_model      TEXT`;
 
     await sql`
       CREATE TABLE IF NOT EXISTS known_models (
@@ -91,8 +101,14 @@ export default defineEventHandler(async () => {
       )
     `;
 
-    // Seed known_models if empty
-    const [{ value: existingCount }] = await db.select({ value: count() }).from(known_models);
+    /* v1.1 — add embedding columns to known_models */
+    await sql`ALTER TABLE known_models ADD COLUMN IF NOT EXISTS embedding_vectors JSONB`;
+    await sql`ALTER TABLE known_models ADD COLUMN IF NOT EXISTS mean_vector        JSONB`;
+
+    // ── Seed known_models if empty ─────────────────────────────────────────
+    const [{ value: existingCount }] = await db
+      .select({ value: count() })
+      .from(known_models);
 
     let seeded = 0;
     if (existingCount === 0) {
@@ -115,9 +131,18 @@ export default defineEventHandler(async () => {
 
     return {
       ok: true,
-      message: "Database initialized successfully",
+      message: "Database initialized successfully (v1.1)",
       tables: ["providers", "accounts", "models", "fingerprints", "known_models"],
       known_models_seeded: seeded,
+      new_columns: [
+        "fingerprints.embedding_vectors",
+        "fingerprints.mean_vector",
+        "fingerprints.similarity_score",
+        "fingerprints.matched_model",
+        "fingerprints.verdict",
+        "known_models.embedding_vectors",
+        "known_models.mean_vector",
+      ],
     };
   } catch (err: any) {
     console.error("[init-db]", err);

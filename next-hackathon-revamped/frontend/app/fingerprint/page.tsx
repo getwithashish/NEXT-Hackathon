@@ -13,6 +13,7 @@ const STEPS = [
   { id: "fingerprint-batch-0", label: "Probe batch 1 (prompts 1–5)" },
   { id: "fingerprint-batch-1", label: "Probe batch 2 (prompts 6–10)" },
   { id: "fingerprint-batch-2", label: "Probe batch 3 (prompts 11–15)" },
+  { id: "embed-responses",     label: "Embed responses (Titan v2)" },
   { id: "compare-and-persist", label: "Compare & persist result" },
 ];
 
@@ -304,16 +305,34 @@ export default function FingerprintPage() {
               </div>
 
               <div className="space-y-2.5">
-                {result.verdict && (
+                {result.verdict && (() => {
+                  const verdictMeta: Record<string, { label: string; cls: string }> = {
+                    exact_match:     { label: "Exact Match",        cls: "text-danger" },
+                    clone_suspect:   { label: "Clone Suspect",      cls: "text-danger" },
+                    high_similarity: { label: "High Similarity",    cls: "text-warning" },
+                    same_family:     { label: "Same Family",        cls: "text-info" },
+                    unknown:         { label: "Unknown / Original", cls: "text-success" },
+                  };
+                  const meta = verdictMeta[result.verdict] ?? { label: result.verdict, cls: "text-text-muted" };
+                  return (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] text-text-subtle">Verdict</span>
+                      <span className={cn("text-[13px] font-[590]", meta.cls)}>{meta.label}</span>
+                    </div>
+                  );
+                })()}
+
+                {result.matched_model && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] text-text-subtle">Verdict</span>
-                    <span className={cn("text-[13px] font-[590]",
-                      result.verdict === "original" ? "text-success" :
-                      result.verdict === "clone"     ? "text-danger" :
-                      "text-warning"
-                    )}>
-                      {result.verdict}
-                    </span>
+                    <span className="text-[12px] text-text-subtle">Closest match</span>
+                    <span className="text-[13px] font-[510] text-text-primary">{result.matched_model}</span>
+                  </div>
+                )}
+
+                {result.similarity_score != null && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] text-text-subtle">Similarity</span>
+                    <SimilarityMeter value={result.similarity_score} showLabel={false} />
                   </div>
                 )}
 

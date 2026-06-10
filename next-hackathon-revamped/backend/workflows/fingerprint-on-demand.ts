@@ -1,27 +1,26 @@
 /**
- * workflows/fingerprint-on-demand.ts
+ * workflows/fingerprint-on-demand.ts  (v1.1)
  *
- * Triggered by: POST /api/fingerprint/submit (user submits an endpoint + key)
+ * 6-step pipeline (up from 5):
+ *   1. resolve-template      — validate endpoint / extract RequestTemplate via Exa+Claude
+ *   2. fingerprint-batch-0   — send discriminative prompts 1–5, record responses + latency
+ *   3. fingerprint-batch-1   — prompts 6–10
+ *   4. fingerprint-batch-2   — prompts 11–15
+ *   5. embed-responses        ← NEW — call Bedrock Titan Embeddings v2 on all 15 responses
+ *   6. compare-and-persist   — two-phase cosine comparison + DB write
  *
- * Steps:
- *   1. resolve-template   — validate/extract RequestTemplate
- *   2. fingerprint-batch-0 — prompts 1-5
- *   3. fingerprint-batch-1 — prompts 6-10
- *   4. fingerprint-batch-2 — prompts 11-15
- *   5. compare-and-persist — hash comparison + DB write
- *
- * Splitting into 3 batch steps keeps each step well under the 300s Vercel
- * function timeout (con #1 fix). The readable stream from getRun() emits a
- * step_completed event after each batch, giving the frontend real progress.
+ * Each step emits a step_completed event to the Vercel Workflow readable stream,
+ * giving the frontend 6 real progress checkpoints.
  */
 
 import {
   resolveTemplateFromDocs,
   validateTemplate,
   fingerprintBatch,
-  compareFingerprintHash,
+  computeBehaviorHash,
+  embedResponses,
+  compareFingerprintEmbeddings,
   type RequestTemplate,
-  type FingerprintResult,
 } from "../lib/agents/index";
 import { db, fingerprints } from "../lib/db/index";
 import { eq } from "drizzle-orm";
@@ -35,17 +34,12 @@ async function stepResolveTemplate(
   requestTemplate?: RequestTemplate
 ) {
   "use step";
-  if (requestTemplate) {
-    return await validateTemplate(requestTemplate, apiKey);
-  }
-  if (docUrl) {
-    return await resolveTemplateFromDocs(docUrl, apiKey);
-  }
-  // No template — pass null, ApiCallerAgent will auto-detect the provider
+  if (requestTemplate) return await validateTemplate(requestTemplate, apiKey);
+  if (docUrl)          return await resolveTemplateFromDocs(docUrl, apiKey);
   return null;
 }
 
-// ── Steps 2-4: fingerprint in batches of 5 ───────────────────────────────────
+// ── Steps 2–4: fingerprint batches ───────────────────────────────────────────
 
 async function stepFingerprintBatch0(
   apiEndpoint: string,
@@ -77,47 +71,79 @@ async function stepFingerprintBatch2(
   return await fingerprintBatch(2, apiEndpoint, apiKey, modelHint, template);
 }
 
-// ── Step 5: compare + persist ─────────────────────────────────────────────────
+// ── Step 5: embed all 15 responses ────────────────────────────────────────────
+// Calls Bedrock Titan Embeddings v2 sequentially on each response.
+// Returns { embedding_vectors: number[][], mean_vector: number[] }
+
+async function stepEmbedResponses(
+  batch0: Awaited<ReturnType<typeof fingerprintBatch>>,
+  batch1: Awaited<ReturnType<typeof fingerprintBatch>>,
+  batch2: Awaited<ReturnType<typeof fingerprintBatch>>
+) {
+  "use step";
+  return await embedResponses([batch0, batch1, batch2]);
+}
+
+// ── Step 6: compare + persist ─────────────────────────────────────────────────
 
 async function stepCompareAndPersist(
   jobId: string,
   modelName: string,
   batch0: Awaited<ReturnType<typeof fingerprintBatch>>,
   batch1: Awaited<ReturnType<typeof fingerprintBatch>>,
-  batch2: Awaited<ReturnType<typeof fingerprintBatch>>
+  batch2: Awaited<ReturnType<typeof fingerprintBatch>>,
+  embeddingResult: Awaited<ReturnType<typeof embedResponses>>
 ) {
   "use step";
-  // Merge partial signatures into a single behavior hash
-  const allResponses = [...batch0.responses, ...batch1.responses, ...batch2.responses];
-  const combinedHash = await import("node:crypto").then(({ createHash }) => {
-    const sorted = [...allResponses].sort();
-    return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
-  });
 
-  // Compare against known models
-  const { similar_models, verdict } = await compareFingerprintHash(combinedHash);
+  const allResponses = [
+    ...batch0.responses,
+    ...batch1.responses,
+    ...batch2.responses,
+  ];
 
-  // Persist to DB
+  // SHA-256 fast path (exact match)
+  const behaviorHash = computeBehaviorHash([batch0, batch1, batch2]);
+
+  // Two-phase embedding comparison
+  const { embedding_vectors, mean_vector } = embeddingResult;
+  const { similar_models, verdict, similarity_score, matched_model } =
+    await compareFingerprintEmbeddings(embedding_vectors, mean_vector, behaviorHash);
+
+  // Persist everything to DB
   await db
     .update(fingerprints)
     .set({
-      fingerprint_hash: combinedHash,
+      fingerprint_hash:  behaviorHash,
+      embedding_vectors: embedding_vectors as any,
+      mean_vector:       mean_vector       as any,
+      similarity_score,
+      matched_model:     matched_model ?? undefined,
+      verdict,
       fingerprint_data: {
         responses: allResponses,
         similar_models,
         verdict,
+        similarity_score,
+        matched_model,
         batch_signatures: [
           batch0.partial_signature,
           batch1.partial_signature,
           batch2.partial_signature,
         ],
       },
-      status: "done",
+      status:       "done",
       completed_at: new Date(),
     })
     .where(eq(fingerprints.job_id, jobId));
 
-  return { behavior_hash: combinedHash, similar_models, verdict };
+  return {
+    behavior_hash:    behaviorHash,
+    similar_models,
+    verdict,
+    similarity_score,
+    matched_model,
+  };
 }
 
 // ── Main workflow ─────────────────────────────────────────────────────────────
@@ -133,19 +159,24 @@ export async function fingerprintOnDemandWorkflow(
 ) {
   "use workflow";
 
-  const template = await stepResolveTemplate(
+  const templateRaw = await stepResolveTemplate(
     apiEndpoint, apiKey, docUrl, requestTemplate
   );
 
-  const batch0 = await stepFingerprintBatch0(apiEndpoint, apiKey, modelHint, template);
-  const batch1 = await stepFingerprintBatch1(apiEndpoint, apiKey, modelHint, template);
-  const batch2 = await stepFingerprintBatch2(apiEndpoint, apiKey, modelHint, template);
+  // Normalise: validateTemplate returns {ok,error}, not a RequestTemplate.
+  // If template resolution produced a valid RequestTemplate use it; otherwise null.
+  const template: RequestTemplate | null =
+    templateRaw && "endpoint_url" in templateRaw ? templateRaw : null;
 
-  const result = await stepCompareAndPersist(jobId, modelName, batch0, batch1, batch2);
+  const batch0 = await stepFingerprintBatch0(apiEndpoint, apiKey, modelHint, template as RequestTemplate | null);
+  const batch1 = await stepFingerprintBatch1(apiEndpoint, apiKey, modelHint, template as RequestTemplate | null);
+  const batch2 = await stepFingerprintBatch2(apiEndpoint, apiKey, modelHint, template as RequestTemplate | null);
 
-  return {
-    job_id: jobId,
-    model_name: modelName,
-    ...result,
-  };
+  const embeddingResult = await stepEmbedResponses(batch0, batch1, batch2);
+
+  const result = await stepCompareAndPersist(
+    jobId, modelName, batch0, batch1, batch2, embeddingResult
+  );
+
+  return { job_id: jobId, model_name: modelName, ...result };
 }

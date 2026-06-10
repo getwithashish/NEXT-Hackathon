@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ClipboardList, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { Badge, statusBadge } from "@/components/Badge";
+import { Badge, statusBadge, verdictBadge } from "@/components/Badge";
 import { SimilarityMeter } from "@/components/SimilarityMeter";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
@@ -46,6 +46,7 @@ function JobDetailSheet({ job, onClose }: { job: any; onClose: () => void }) {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               {statusBadge(job.status)}
+              {job.verdict && verdictBadge(job.verdict)}
               {job.type && <Badge variant="muted">{job.type}</Badge>}
             </div>
             <div>
@@ -296,7 +297,12 @@ export default function JobsPage() {
                       {job.job_id?.slice(0, 10)}…
                     </div>
                   </td>
-                  <td className="px-4 py-3">{statusBadge(job.status)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      {statusBadge(job.status)}
+                      {job.verdict && <div className="mt-0.5">{verdictBadge(job.verdict)}</div>}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     {job.similarity_score != null
                       ? <SimilarityMeter value={job.similarity_score} showLabel={false} />

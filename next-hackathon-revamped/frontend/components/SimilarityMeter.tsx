@@ -7,9 +7,9 @@ interface SimilarityMeterProps {
 }
 
 function getColor(v: number) {
-  if (v >= 0.90) return { bar: "bg-danger",   text: "text-danger",   label: "Clone Suspect" };
-  if (v >= 0.75) return { bar: "bg-warning",  text: "text-warning",  label: "High Similarity" };
-  if (v >= 0.50) return { bar: "bg-info",     text: "text-info",     label: "Moderate" };
+  if (v >= 0.95) return { bar: "bg-danger",   text: "text-danger",   label: "Clone Suspect" };
+  if (v >= 0.85) return { bar: "bg-warning",  text: "text-warning",  label: "High Similarity" };
+  if (v >= 0.70) return { bar: "bg-info",     text: "text-info",     label: "Same Family" };
   return               { bar: "bg-success",   text: "text-success",  label: "Distinct" };
 }
 
