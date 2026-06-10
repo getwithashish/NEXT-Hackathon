@@ -147,7 +147,7 @@ export default defineEventHandler(async () => {
 
     return {
       ok: true,
-      message: "Database initialized successfully (v1.1)",
+      message: "Database initialized successfully (v1.2)",
       tables: ["providers", "accounts", "models", "fingerprints", "known_models"],
       known_models_seeded: seeded,
       new_columns: [
