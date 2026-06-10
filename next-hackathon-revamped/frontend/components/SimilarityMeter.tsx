@@ -14,6 +14,7 @@ function getColor(v: number) {
 }
 
 export function SimilarityMeter({ value, showLabel = true, className }: SimilarityMeterProps) {
+  if (!value || value <= 0) return null;
   const pct = Math.round(value * 100);
   const { bar, text, label } = getColor(value);
   return (

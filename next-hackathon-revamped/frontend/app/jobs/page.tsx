@@ -416,7 +416,7 @@ export default function JobsPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    {job.similarity_score != null
+                    {job.similarity_score != null && job.similarity_score > 0
                       ? <SimilarityMeter value={job.similarity_score} showLabel={false} />
                       : <span className="text-text-subtle text-[12px]">—</span>
                     }
