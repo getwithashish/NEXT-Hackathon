@@ -85,3 +85,4 @@ hackathon_startup.sh
 .agents/
 skills-lock.json
 .hil_state.json
+next-hackathon-revamped/backend/.workflow-data/
